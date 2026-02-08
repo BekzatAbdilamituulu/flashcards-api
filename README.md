@@ -70,7 +70,7 @@ Swagger:
 ### 1. Clone repository
 
 ``` bash
-git clone https://github.com/<yourname>/flashcards-api.git
+git clone https://github.com/BekzatAbdilamituulu/flashcards-api.git
 cd flashcards-api
 ```
 
