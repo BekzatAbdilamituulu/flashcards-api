@@ -10,11 +10,19 @@ class User(Base):
 	hashed_password = Column(String, nullable=False)
 	created_at = Column(DateTime, default=datetime.utcnow)
 
+	languages = relationship("Language", back_populates="owner", cascade="all, delete-orphan")
+	words = relationship("Word", back_populates="owner", cascade="all, delete-orphan")
+
+
 class Language(Base):
 	__tablename__ = 'languages'
 	id = Column(Integer, primary_key=True, index=True)
-	name = Column(String, unique=True) #English
+	name = Column(String, nullable=False) #English
 	code = Column(String)
+
+	owner_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+	owner = relationship('User', back_populates='languages')
+
 
 
 class Word(Base):
@@ -23,7 +31,12 @@ class Word(Base):
 	text = Column(String, nullable=False)
 	translation = Column(String,nullable=False)
 	example_sentence = Column(String)
+
+	owner_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+	owner = relationship('User', back_populates='words')
+
 	language_id = Column(Integer, ForeignKey("languages.id"))
+	language = relationship("Language")
 
 class UserWord(Base):
     """Tracks progress of a specific word for a specific user"""

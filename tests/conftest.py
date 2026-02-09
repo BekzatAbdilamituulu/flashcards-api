@@ -23,23 +23,67 @@ engine = create_engine(
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def override_get_db():
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 @pytest.fixture(scope="session", autouse=True)
-def setup_test_db():
-    Base.metadata.drop_all(bind=engine)
+def create_test_db():
     Base.metadata.create_all(bind=engine)
-    app.dependency_overrides[get_db] = override_get_db
     yield
-    app.dependency_overrides.clear()
+    Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture()
-def client():
-    return TestClient(app)
+def db():
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = TestingSessionLocal(bind=connection)
+
+    yield session
+
+    session.close()
+    transaction.rollback()
+    connection.close()
+
+
+@pytest.fixture()
+def client(db):
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+from uuid import uuid4
+
+def create_user_and_login(client, prefix="user"):
+    username = f"{prefix}_{uuid4().hex[:6]}"
+    password = "1234"
+
+    # register
+    r = client.post("/auth/register", json={
+        "username": username,
+        "password": password,
+    })
+    assert r.status_code in (200, 201), r.text
+
+    # login MUST be form-data
+    r = client.post(
+        "/auth/login",
+        data={"username": username, "password": password}
+    )
+    assert r.status_code == 200, r.text
+
+    body = r.json()
+    assert "access_token" in body, body
+    return body["access_token"]
+
+
+import pytest
+
+@pytest.fixture()
+def token_user1(client):
+    return create_user_and_login(client, "user1")
+
+
+@pytest.fixture()
+def token_user2(client):
+    return create_user_and_login(client, "user2")

@@ -5,36 +5,110 @@ from . import models, schemas
 
 
 # ---------- Languages ----------
-def create_language(db: Session, language: schemas.LanguageCreate) -> models.Language:
-    obj = models.Language(**language.dict())
+def language_has_words(db: Session, language_id: int, user_id: int) -> bool:
+    return (
+        db.query(models.Word)
+        .filter(
+            models.Word.language_id == language_id,
+            models.Word.owner_id == user_id,
+        )
+        .first()
+        is not None
+    )
+
+
+def create_language(db: Session, language: schemas.LanguageCreate, user_id: int) -> models.Language:
+    obj = models.Language(**language.dict(), owner_id=user_id)
     db.add(obj)
     db.commit()
     db.refresh(obj)
     return obj
 
 
-def get_languages(db: Session) -> list[models.Language]:
-    return db.query(models.Language).all()
+def get_languages(db: Session, user_id: int) -> list[models.Language]:
+    return (
+    db.query(models.Language)
+    .filter(models.Language.owner_id == user_id)
+    .all()
+)
+
+def get_language(db: Session, language_id: int, user_id: int) -> models.Language | None:
+    return (
+        db.query(models.Language)
+        .filter(models.Language.id == language_id, models.Language.owner_id == user_id)
+        .first()
+    )
+
+def update_language(db: Session, language_id: int, payload: schemas.LanguageUpdate, user_id: int):
+    obj = (
+        db.query(models.Language)
+        .filter(models.Language.id == language_id, models.Language.owner_id == user_id)
+        .first()
+    )
+    if not obj:
+        return None
+
+    # only update provided fields
+    data = payload.dict(exclude_unset=True)
+    for k, v in data.items():
+        setattr(obj, k, v)
+
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def delete_language(db: Session, language_id: int, user_id: int) -> bool:
+    obj = (
+        db.query(models.Language)
+        .filter(
+            models.Language.id == language_id,
+            models.Language.owner_id == user_id,
+        )
+        .first()
+    )
+    if not obj:
+        return False
+
+    #  prevent delete if words exist
+    if language_has_words(db, language_id, user_id):
+        raise ValueError("Language contains words")
+
+    db.delete(obj)
+    db.commit()
+    return True
+
 
 
 # ---------- Words ----------
-def create_word(db: Session, word: schemas.WordCreate) -> models.Word:
-    obj = models.Word(**word.dict())
+def create_word(db: Session, word: schemas.WordCreate, user_id: int) -> models.Word:
+    obj = models.Word(**word.dict(), owner_id=user_id)
     db.add(obj)
     db.commit()
     db.refresh(obj)
     return obj
 
 
-def get_words_by_language(db: Session, language_id: int) -> list[models.Word]:
-    return db.query(models.Word).filter(models.Word.language_id == language_id).all()
+def get_words_by_language(db: Session, language_id: int, user_id: int) -> list[models.Word]:
+    return (db.query(models.Word).filter(
+    models.Language.id == language_id,
+    models.Word.owner_id == user_id)
+    .all()
+)
 
 
-def get_word(db: Session, word_id: int) -> models.Word | None:
-    return db.query(models.Word).filter(models.Word.id == word_id).first()
+def get_word(db: Session, word_id: int, user_id: int) -> models.Word | None:
+    return (
+        db.query(models.Word)
+        .filter(models.Word.id == word_id, models.Word.owner_id == user_id)
+        .first()
+)
 
-def update_word(db: Session, word_id: int, word: schemas.WordCreate):
-    db_word = db.query(models.Word).filter(models.Word.id == word_id).first()
+def update_word(db: Session, word_id: int, word: schemas.WordCreate, user_id: int):
+    db_word = (db.query(models.Word)
+        .filter(models.Word.id == word_id, models.Word.owner_id == user_id)
+        .first()
+    )
     if not db_word:
         return None
 
@@ -48,8 +122,11 @@ def update_word(db: Session, word_id: int, word: schemas.WordCreate):
     return db_word
 
 
-def delete_word(db: Session, word_id: int) -> bool:
-    db_word = db.query(models.Word).filter(models.Word.id == word_id).first()
+def delete_word(db: Session, word_id: int, user_id: int) -> bool:
+    db_word = (db.query(models.Word)
+        .filter(models.Word.id == word_id, models.Word.owner_id == user_id)
+        .first()
+    )
     if not db_word:
         return False
 
@@ -185,7 +262,7 @@ def reset_user_progress(db: Session, user_id: int, language_id: int) -> int:
     db.commit()
     return deleted
 
-def get_review_candidates(db: Session, user_id: int, language_id: int):
+def get_review_candidates(db: Session, language_id: int, user_id: int):
     # returns list of (Word, UserWord|None) for the language
 
     rows = (
@@ -198,6 +275,7 @@ def get_review_candidates(db: Session, user_id: int, language_id: int):
                 )
             )
         .filter(models.Word.language_id == language_id)
+        .filter(models.Word.owner_id == user_id)
         .all()
     )
     return rows

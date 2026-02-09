@@ -2,39 +2,51 @@ from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from typing import Optional
 
-# -----------------WORD SECTION------------
-
+# ----------------- WORD SECTION -----------------
 
 class WordBase(BaseModel):
-	text: str
-	translation: str
-	language_id: int
-	example_sentence: str | None
+    text: str
+    translation: str
+    language_id: int
+    example_sentence: Optional[str] = None
+
 
 class WordCreate(WordBase):
-	language_id: int
-	text: str
-	translation: str
-	example_sentence: str | None = None
+    pass
+
+
+class WordUpdate(BaseModel):
+    text: Optional[str] = None
+    translation: Optional[str] = None
+    language_id: Optional[int] = None
+    example_sentence: Optional[str] = None
+
 
 class WordOut(WordBase):
-	id: int
-	model_config = ConfigDict(from_attributes=True)
+    id: int
+    model_config = ConfigDict(from_attributes=True)
 
 
+# --------------- LANGUAGE SECTION -------------------
 
-#---------------LANGUAGE SECTION-------------------
+class LanguageBase(BaseModel):
+    name: str
+    code: str
 
-class LanguageCreate(BaseModel):
-	name: str
-	code: str
 
-class LanguageOut(BaseModel):
-	id: int
-	name: str
-	code: str 
+class LanguageCreate(LanguageBase):
+    pass
 
-	model_config = ConfigDict(from_attributes=True)
+
+class LanguageUpdate(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+
+
+class LanguageOut(LanguageBase):
+    id: int
+    model_config = ConfigDict(from_attributes=True)
+
 
 #-------------------USER SECTION---------------
 

@@ -9,10 +9,10 @@ Built with FastAPI as a production-style backend project.
 
 ## Features
 
--   User registration & login
--   JWT authentication (Bearer tokens)
+-   User registration & login (JWT Bearer)
+-   Languages and words **owned by the current user** (no global data)
 -   Per-user study progress
--   Smart review queue
+-   Smart review queue (`/study/next`)
 -   Study statistics
 -   Words & languages management
 -   REST API with OpenAPI/Swagger
@@ -104,6 +104,7 @@ Example:
 
     SECRET_KEY=supersecretkey
     ACCESS_TOKEN_EXPIRE_MINUTES=30
+    DATABASE_URL = "sqlite:////app/data/app.db"
 
 ------------------------------------------------------------------------
 
@@ -139,59 +140,55 @@ Response:
 }
 ```
 
-### Use token
+## Main Endpoints
 
-Send header:
+### Languages (user-owned)
+- `GET /languages` — list my languages
+- `POST /languages` — create language
 
-    Authorization: Bearer <token>
+> Planned next: `PATCH /languages/{id}`, `DELETE /languages/{id}`
 
-------------------------------------------------------------------------
+### Words (user-owned)
+- `GET /words?language_id=<id>` — list words in a language
+- `POST /words` — create word
+- `PUT /words/{word_id}` — update word
+- `DELETE /words/{word_id}` — delete word
+
+### Study
+- `GET /study/next?language_id=<id>&limit=5&random_top=3` — get next review candidate
+- `POST /study/{word_id}` — submit answer and update progress  
+  Body: `{"correct": true}`  
+  (also supports `?correct=true/false`)
+
+> Note: there are legacy endpoints in `study.py` marked “backward-compatible”. They should be removed or fixed (they currently reference an undefined `user_id`).
+
+### Progress (current user)
+- `GET /users/me/progress?language_id=<id>` — progress list for language
+- `GET /users/me/progress/stats?language_id=<id>` — summary stats
+- `DELETE /users/me/progress?language_id=<id>` — reset progress for language
 
 ## Example Study Flow
 
-1.  Create language\
-2.  Create words\
-3.  Get review queue\
-4.  Submit answer\
-5.  Track progress & statistics
-
-All operations are user-scoped via JWT.
-
-------------------------------------------------------------------------
+1. Register / login
+2. Create language
+3. Create words
+4. `GET /study/next`
+5. `POST /study/{word_id}` with `{"correct": true/false}`
+6. View progress and stats
 
 ## Running tests
 
-``` bash
+```bash
 pytest
 ```
 
-Tests use a separate database and override dependencies.
+## Changelog
 
-------------------------------------------------------------------------
-
-## Future Improvements
-
--   Refresh tokens
--   Deck sharing
--   Multiplayer rooms
--   Advanced spaced repetition algorithms
--   Background tasks
--   Caching
-
-------------------------------------------------------------------------
-
-## Project Goal
-
-This project is part of my backend engineering portfolio.\
-The focus is on:
-
--   clean architecture
--   authentication & security
--   correct data ownership
--   realistic API design
--   testability
-
-------------------------------------------------------------------------
+### 2026-02-09
+- Refactor direction: **thin routers**, move DB logic into `crud`/`services`
+- Study: unify review logic via a helper (removes duplication)
+- Tests: align login tests with OAuth2 **form data** requirements
+- Multi-user goal reinforced: languages/words must be **scoped to current user** (no global resources)
 
 ## Author
 
