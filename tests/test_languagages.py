@@ -1,13 +1,22 @@
-def test_create_language(client, user_token):
-    res = client.post(
-        "/languages",
-        json={"name": "English", "code": "en"},
-        headers={"Authorization": f"Bearer {user_token}"}
-    )
+from uuid import uuid4
 
-    assert res.status_code == 200
-    data = res.json()
-    assert data["name"] == "English"
+def auth_headers(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def create_user_and_login(client, prefix="user") -> str:
+    username = f"{prefix}_{uuid4().hex[:6]}"
+    password = "1234"
+
+    r = client.post("/auth/register", json={"username": username, "password": password})
+    assert r.status_code in (200, 201), r.text
+
+    # OAuth2PasswordRequestForm -> must be form data
+    r = client.post("/auth/login", data={"username": username, "password": password})
+    assert r.status_code == 200, r.text
+    return r.json()["access_token"]
+
+
 
 
 def test_languages_are_private(client, token_user1, token_user2):

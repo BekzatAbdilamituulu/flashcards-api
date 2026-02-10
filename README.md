@@ -190,6 +190,21 @@ pytest
 - Tests: align login tests with OAuth2 **form data** requirements
 - Multi-user goal reinforced: languages/words must be **scoped to current user** (no global resources)
 
+### 2026-02-10 — Deck system upgrade
+- Added
+
+- Adaptive /deck endpoint that selects study items for the authenticated user.
+
+- Learning Algorithm Improvements
+Introduced overdue-first selection.
+Words are considered overdue based on last_review and success history.
+Review intervals:
+0 correct → 10 minutes
+1 correct → 1 day
+2 correct → 3 days
+mastered (≥3) → 14 days
+Overdue items are prioritized before new content.
+
 ## Author
 
 Bekzat

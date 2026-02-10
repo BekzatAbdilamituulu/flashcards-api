@@ -123,3 +123,12 @@ class NextReviewOut(BaseModel):
 
 class StudyAnswerIn(BaseModel):
 	correct: bool
+
+#-----------Deck
+
+class DeckItemOut(BaseModel):
+	word: WordOut
+	status: str = 'new'
+	times_seen: int=0
+	times_correct: int=0
+	last_review: Optional[datetime] = None

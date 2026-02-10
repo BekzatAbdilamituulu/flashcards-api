@@ -11,7 +11,7 @@ def create_user_and_login(client, prefix="user") -> str:
     r = client.post("/auth/register", json={"username": username, "password": password})
     assert r.status_code in (200, 201), r.text
 
-    # OAuth2PasswordRequestForm -> must be form data
+
     r = client.post("/auth/login", data={"username": username, "password": password})
     assert r.status_code == 200, r.text
     return r.json()["access_token"]
