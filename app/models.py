@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float
 from sqlalchemy.orm import relationship
 from .database import Base
 from datetime import datetime
@@ -48,4 +48,10 @@ class UserWord(Base):
     times_seen = Column(Integer, default=0)
     times_correct = Column(Integer, default=0)
     last_review = Column(DateTime)
+
+    # sm-2 sheduling fields
+    ease_factor = Column(Float, default=2.5) #ef
+    interval_days = Column(Integer, default=0) #current interval (days)
+    repetitions = Column(Integer, default=0) #successful reps in a row
+    next_review = Column(DateTime, nullable=True)
 

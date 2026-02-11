@@ -191,11 +191,7 @@ pytest
 - Multi-user goal reinforced: languages/words must be **scoped to current user** (no global resources)
 
 ### 2026-02-10 — Deck system upgrade
-- Added
-
-- Adaptive /deck endpoint that selects study items for the authenticated user.
-
-- Learning Algorithm Improvements
+- Added Adaptive /deck endpoint that selects study items for the authenticated user. Learning Algorithm Improvements
 Introduced overdue-first selection.
 Words are considered overdue based on last_review and success history.
 Review intervals:
@@ -204,6 +200,10 @@ Review intervals:
 2 correct → 3 days
 mastered (≥3) → 14 days
 Overdue items are prioritized before new content.
+
+### 2026-02-10 — Added Spaced Repetition (SM-2)
+- Study answers now dynamically calculate the next appearance of a card. Difficult words return sooner, easy words move further away.
+- CSV,JSON Import. Accepts UTF-8 CSV with headers:
 
 ## Author
 

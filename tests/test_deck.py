@@ -1,5 +1,6 @@
 from uuid import uuid4
 from datetime import datetime, timedelta, timezone
+from app import models
 
 def auth_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
@@ -134,9 +135,13 @@ def test_deck_includes_overdue_items(client, db):
     word_id = create_word(client, token, lang_id)
 
     from app import models
-    uw = db.query(models.UserWord).filter_by(word_id=word_id).first()
+    user = db.query(models.User).filter(models.User.username.like("u1_%")).first()
+    uw = (
+        db.query(models.UserWord)
+        .filter_by(word_id=word_id, user_id=user.id)
+        .first()
+    )
     if not uw:
-        user = db.query(models.User).filter(models.User.username.like("u1_%")).first()
         uw = models.UserWord(user_id=user.id, word_id=word_id, times_seen=1, times_correct=1)
         db.add(uw)
 

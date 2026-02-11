@@ -1,7 +1,9 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
+from datetime import datetime
 
 from . import models, schemas
+
 
 
 # ---------- Languages ----------
@@ -91,7 +93,7 @@ def create_word(db: Session, word: schemas.WordCreate, user_id: int) -> models.W
 
 def get_words_by_language(db: Session, language_id: int, user_id: int) -> list[models.Word]:
     return (db.query(models.Word).filter(
-    models.Language.id == language_id,
+    models.Word.language_id == language_id,
     models.Word.owner_id == user_id)
     .all()
 )
@@ -134,7 +136,27 @@ def delete_word(db: Session, word_id: int, user_id: int) -> bool:
     db.commit()
     return True
 
+def find_word_by_term(db: Session, user_id: int, language_id: int, text: str):
+    return (
+        db.query(models.Word)
+        .filter(
+            models.Word.owner_id == user_id,
+            models.Word.language_id == language_id,
+            models.Word.text == text,
+        )
+        .first()
+    )
 
+def create_word_fields(db: Session, user_id: int, language_id: int, text: str, translation: str, example_sentence: str | None = None):
+    w = models.Word(
+        owner_id=user_id,
+        language_id=language_id,
+        text=text.strip(),
+        translation=translation.strip(),
+        example_sentence=example_sentence.strip() if example_sentence else None,
+    )
+    db.add(w)
+    return w
 
 
 
@@ -279,3 +301,76 @@ def get_review_candidates(db: Session, language_id: int, user_id: int):
         .all()
     )
     return rows
+
+
+#srs
+def get_due_reviews(db: Session, language_id: int, user_id: int, limit: int):
+    now = datetime.utcnow()
+    return (
+        db.query(models.Word)
+        .join(models.UserWord, models.UserWord.word_id == models.Word.id)
+        .filter(
+            models.Word.owner_id == user_id,
+            models.Word.language_id == language_id,
+            models.UserWord.user_id == user_id,
+            models.UserWord.next_review.isnot(None),
+            models.UserWord.next_review <= now,
+        )
+        .order_by(models.UserWord.next_review.asc())
+        .limit(limit)
+        .all()
+    )
+
+def get_new_words(db: Session, language_id: int, user_id: int, exclude_word_ids: list[int], limit: int):
+    q = (
+        db.query(models.Word)
+        .outerjoin(
+            models.UserWord,
+            and_(
+                models.UserWord.word_id == models.Word.id,
+                models.UserWord.user_id == user_id,
+            )
+        )
+        .filter(
+            models.Word.owner_id == user_id,
+            models.Word.language_id == language_id,
+            models.UserWord.id.is_(None),  # no progress record => new
+        )
+    )
+
+    if exclude_word_ids:
+        q = q.filter(~models.Word.id.in_(exclude_word_ids))
+
+    return q.order_by(models.Word.id.asc()).limit(limit).all()
+
+
+def count_reviewed_today(db: Session, user_id: int, language_id: int) -> int:
+    now = datetime.utcnow()
+    start = datetime(now.year, now.month, now.day)  # UTC day start
+    return (
+        db.query(models.UserWord)
+        .join(models.Word, models.Word.id == models.UserWord.word_id)
+        .filter(
+            models.UserWord.user_id == user_id,
+            models.Word.language_id == language_id,
+            models.UserWord.last_review.isnot(None),
+            models.UserWord.last_review >= start,
+        )
+        .count()
+    )
+
+def count_new_introduced_today(db: Session, user_id: int, language_id: int) -> int:
+    now = datetime.utcnow()
+    start = datetime(now.year, now.month, now.day)
+    return (
+        db.query(models.UserWord)
+        .join(models.Word, models.Word.id == models.UserWord.word_id)
+        .filter(
+            models.UserWord.user_id == user_id,
+            models.Word.language_id == language_id,
+            models.UserWord.times_seen == 1,
+            models.UserWord.last_review.isnot(None),
+            models.UserWord.last_review >= start,
+        )
+        .count()
+    )

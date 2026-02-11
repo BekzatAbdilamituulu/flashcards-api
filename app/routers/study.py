@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 import random
@@ -8,6 +8,7 @@ from ..database import get_db
 from .. import crud, schemas
 from ..services.deck import compute_status
 from ..services.review import score_word
+from ..services.srs import sm2_update, Sm2State
 from ..deps import get_current_user  # <-- JWT dependency
 
 router = APIRouter(prefix="/study", tags=["study"])
@@ -16,7 +17,7 @@ router = APIRouter(prefix="/study", tags=["study"])
 # -------------------------
 # 
 # -------------------------
-def _apply_review(db, user_id: int, word_id: int, is_correct: bool):
+def _apply_review(db, user_id: int, word_id: int, quality: int):
     word = crud.get_word(db, word_id, user_id)
     if not word:
         raise HTTPException(status_code=404, detail="Word not found")
@@ -26,11 +27,24 @@ def _apply_review(db, user_id: int, word_id: int, is_correct: bool):
         rec = crud.create_user_word_record(db, user_id, word_id)
 
     rec.times_seen = (rec.times_seen or 0) + 1
-    if is_correct:
+    if quality >= 3:
         rec.times_correct = (rec.times_correct or 0) + 1
 
-    rec.last_review = datetime.utcnow()
-    rec.status = compute_status(rec.times_seen or 0, rec.times_correct or 0)
+    state = Sm2State(
+        ease_factor=rec.ease_factor or 2.5,
+        interval_days=rec.interval_days or 0,
+        repetitions=rec.repetitions or 0,
+    )
+
+    new_state = sm2_update(state, quality)
+
+    rec.ease_factor = new_state.ease_factor
+    rec.interval_days = new_state.interval_days
+    rec.repetitions = new_state.repetitions
+
+    now = datetime.utcnow()
+    rec.last_review = now
+    rec.next_review = now + timedelta(days=rec.interval_days)
 
     db.commit()
     db.refresh(rec)
@@ -41,74 +55,65 @@ def _apply_review(db, user_id: int, word_id: int, is_correct: bool):
 @router.post("/{word_id}", response_model=schemas.UserWordOut)
 def study_word_me(
     word_id: int,
-    payload: Optional[schemas.StudyAnswerIn] = None,  # JSON body (optional)
-    correct: Optional[bool] = Query(default=None),    # query param (optional)
+    payload: Optional[schemas.StudyAnswerIn] = None,
+    correct: Optional[bool] = Query(default=None),
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # choose correct value from body first, otherwise from query
+    # 1) prefer body
     if payload is not None:
-        is_correct = payload.correct
+        if payload.quality is not None:
+            quality = payload.quality
+        elif payload.correct is not None:
+            quality = 4 if payload.correct else 1
+        else:
+            raise HTTPException(status_code=422, detail="Provide 'quality' or 'correct'")
+    # 2) fallback query param
     elif correct is not None:
-        is_correct = correct
+        quality = 4 if correct else 1
     else:
         raise HTTPException(
             status_code=422,
-            detail="Provide JSON body {'correct': true/false} or ?correct=true/false",
+            detail="Provide JSON body {'quality':0..5} or {'correct':true/false} or ?correct=true/false",
         )
 
-    return _apply_review(db, current_user.id, word_id, is_correct)
+    return _apply_review(db, current_user.id, word_id, quality)
 
 
-@router.get("/next", response_model=list[schemas.NextReviewOut])
-def next_word_me(
+
+@router.get("/next", response_model=schemas.DeckOut)
+def next_study(
     language_id: int,
-    limit: int = 5,
-    random_top: int = 3,
+    limit: int = 20,
+    new_ratio: float = 0.3,
+    max_new_per_day: int = 10,
+    max_reviews_per_day: int = 100,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     limit = max(1, min(limit, 50))
+    new_ratio = max(0.0, min(new_ratio, 1.0))
 
-    rows = crud.get_review_candidates(db, current_user.id, language_id)
-    if not rows:
-        raise HTTPException(status_code=404, detail="No words for this language")
+    reviewed_today = crud.count_reviewed_today(db, current_user.id, language_id)
+    new_today = crud.count_new_introduced_today(db, current_user.id, language_id)
 
-    scored: list[schemas.NextReviewOut] = []
+    remaining_review_quota = max(0, max_reviews_per_day - reviewed_today)
+    remaining_new_quota = max(0, max_new_per_day - new_today)
 
-    for word, uw in rows:
-        times_seen = (uw.times_seen if uw else 0) or 0
-        times_correct = (uw.times_correct if uw else 0) or 0
-        last_review = uw.last_review if uw else None
+    target_new = int(round(limit * new_ratio))
+    target_reviews = limit - target_new
 
-        status_str = compute_status(times_seen, times_correct)
-        s = score_word(times_seen, times_correct, last_review)
+    target_reviews = min(target_reviews, remaining_review_quota)
+    target_new = min(limit - target_reviews, remaining_new_quota)
 
-        if status_str == "new":
-            reason = "new word"
-        elif status_str == "learning":
-            reason = "needs practice"
-        else:
-            reason = "review mastered"
+    review_words = crud.get_due_reviews(db, language_id, current_user.id, target_reviews)
 
-        scored.append(
-            schemas.NextReviewOut(
-                word=word,
-                score=float(round(s, 4)),
-                reason=reason,
-                last_review=last_review,
-                times_seen=times_seen,
-                times_correct=times_correct,
-                status=status_str,
-            )
-        )
+    remaining = min(limit - len(review_words), remaining_new_quota)
+    new_words = crud.get_new_words(db, language_id, current_user.id, [w.id for w in review_words], remaining)
 
-    scored.sort(key=lambda x: x.score, reverse=True)
+    words = review_words + new_words
+    return {"language_id": language_id, "count": len(words), "words": words}
 
-    top = scored[:limit]
-    random_top = min(len(top), max(1, random_top))
-    choice = random.choice(top[:random_top])
 
-    return [choice]
 
 

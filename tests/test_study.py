@@ -11,7 +11,6 @@ def create_user_and_login(client, prefix="user") -> str:
     r = client.post("/auth/register", json={"username": username, "password": password})
     assert r.status_code in (200, 201), r.text
 
-
     r = client.post("/auth/login", data={"username": username, "password": password})
     assert r.status_code == 200, r.text
     return r.json()["access_token"]
@@ -38,7 +37,7 @@ def create_word(client, token: str, language_id: int, text="hello", translation=
         },
         headers=auth_headers(token),
     )
-    assert r.status_code == 200, r.text
+    assert r.status_code in (200, 201), r.text
     return r.json()["id"]
 
 
@@ -78,7 +77,6 @@ def test_study_cannot_review_foreign_word(client):
     lang1 = create_language(client, token1, name="English_u1", code="en")
     word_id = create_word(client, token1, lang1)
 
-    # user2 tries to review user1's word -> should be 404 (not found)
     r = client.post(
         f"/study/{word_id}",
         json={"correct": True},
@@ -87,7 +85,7 @@ def test_study_cannot_review_foreign_word(client):
     assert r.status_code == 404, r.text
 
 
-def test_study_next_returns_only_my_words(client):
+def test_study_next_returns_deckout_and_only_my_words(client):
     token1 = create_user_and_login(client, "u1")
     token2 = create_user_and_login(client, "u2")
 
@@ -95,24 +93,28 @@ def test_study_next_returns_only_my_words(client):
     lang1 = create_language(client, token1, name="English_u1", code="en")
     create_word(client, token1, lang1, text="hello", translation="привет")
 
-    # user2 creates their own language (same code is ok) but no words
+    # user2 creates their own language but no words
     lang2 = create_language(client, token2, name="English_u2", code="en")
 
-    # user2 asks next -> should be 404 because they have no words in their language
+    # user2 asks next -> current app returns 200 with empty deck
     r = client.get(
-        f"/study/next?language_id={lang2}",
+        f"/study/next?language_id={lang2}&limit=20",
         headers=auth_headers(token2),
     )
-    assert r.status_code == 404, r.text
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["language_id"] == lang2
+    assert data["count"] == 0
+    assert data["words"] == []
 
-    # user1 asks next -> should return 200 with one item
+    # user1 asks next -> should return 1 word in DeckOut
     r = client.get(
-        f"/study/next?language_id={lang1}",
+        f"/study/next?language_id={lang1}&limit=20",
         headers=auth_headers(token1),
     )
     assert r.status_code == 200, r.text
     data = r.json()
-    assert isinstance(data, list)
-    assert len(data) == 1
-    assert "word" in data[0]
-    assert data[0]["word"]["language_id"] == lang1
+    assert data["language_id"] == lang1
+    assert data["count"] == 1
+    assert isinstance(data["words"], list)
+    assert data["words"][0]["language_id"] == lang1

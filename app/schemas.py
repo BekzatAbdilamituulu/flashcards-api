@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 # ----------------- WORD SECTION -----------------
 
@@ -79,6 +79,11 @@ class UserWordOut(BaseModel):
 	times_seen: int 
 	times_correct: int 
 	status: str
+	
+	ease_factor: float | None = None 
+	interval_days: int | None = None 
+	repetitions: int | None = None 
+	next_review: Optional[datetime] = None
 
 	model_config = ConfigDict(from_attributes=True)
 
@@ -122,9 +127,14 @@ class NextReviewOut(BaseModel):
 	
 
 class StudyAnswerIn(BaseModel):
-	correct: bool
+	correct: Optional[bool] = None
+	quality: Optional[int] = Field(default=None, ge=0, le=5)
 
 #-----------Deck
+class DeckOut(BaseModel):
+    language_id: int
+    count: int
+    words: List[WordOut]
 
 class DeckItemOut(BaseModel):
 	word: WordOut
@@ -132,3 +142,21 @@ class DeckItemOut(BaseModel):
 	times_seen: int=0
 	times_correct: int=0
 	last_review: Optional[datetime] = None
+
+class StatsOut(BaseModel):
+    language_id: int
+    total_words: int
+    learned_words: int
+    new_words: int
+    learning_words: int
+    mastered_words: int
+    overdue_words: int
+
+# import export words
+class WordImportItem(BaseModel):
+	text: str = Field(min_length=1)
+	translation: str = Field(min_length=1)
+	example_sentence: Optional[str] = None
+
+class WordImportRequest(BaseModel):
+	items: List[WordImportItem]

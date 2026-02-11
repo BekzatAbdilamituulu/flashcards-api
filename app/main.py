@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Base, engine
-from .routers import words, languages, users, study, deck, auth
+from .routers import words, languages, users, study, deck, auth, stats, import_export
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -24,3 +24,5 @@ app.include_router(words.router)
 app.include_router(users.router)
 app.include_router(study.router)
 app.include_router(deck.router)
+app.include_router(stats.router)
+app.include_router(import_export.router)
