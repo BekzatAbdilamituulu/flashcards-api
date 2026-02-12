@@ -115,5 +115,33 @@ def next_study(
     return {"language_id": language_id, "count": len(words), "words": words}
 
 
+@router.get("/status", response_model=schemas.StudyStatusOut)
+def study_status(
+    language_id: int,
+    max_new_per_day: int = 10,
+    max_reviews_per_day: int = 100,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    reviewed_today = crud.count_reviewed_today(db, current_user.id, language_id)
+    new_today = crud.count_new_introduced_today(db, current_user.id, language_id)
+
+    due_count = crud.count_due_reviews(db, current_user.id, language_id)
+    new_available_count = crud.count_new_available(db, current_user.id, language_id)
+    next_due_at = crud.get_next_due_at(db, current_user.id, language_id)
+
+    remaining_review_quota = max(0, max_reviews_per_day - reviewed_today)
+    remaining_new_quota = max(0, max_new_per_day - new_today)
+
+    return {
+        "language_id": language_id,
+        "due_count": due_count,
+        "new_available_count": new_available_count,
+        "reviewed_today": reviewed_today,
+        "new_introduced_today": new_today,
+        "remaining_review_quota": remaining_review_quota,
+        "remaining_new_quota": remaining_new_quota,
+        "next_due_at": next_due_at,
+    }
 
 

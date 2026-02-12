@@ -374,3 +374,49 @@ def count_new_introduced_today(db: Session, user_id: int, language_id: int) -> i
         )
         .count()
     )
+
+def count_due_reviews(db: Session, user_id: int, language_id: int) -> int:
+    now = datetime.utcnow()
+    return (
+        db.query(models.UserWord)
+        .join(models.Word, models.Word.id == models.UserWord.word_id)
+        .filter(
+            models.UserWord.user_id == user_id,
+            models.Word.language_id == language_id,
+            models.UserWord.next_review.isnot(None),
+            models.UserWord.next_review <= now,
+        )
+        .count()
+    )
+
+
+def count_new_available(db: Session, user_id: int, language_id: int) -> int:
+    return (
+        db.query(models.Word)
+        .outerjoin(
+            models.UserWord,
+            and_(
+                models.UserWord.word_id == models.Word.id,
+                models.UserWord.user_id == user_id,
+            ),
+        )
+        .filter(
+            models.Word.owner_id == user_id,
+            models.Word.language_id == language_id,
+            models.UserWord.id.is_(None),
+        )
+        .count()
+    )
+
+
+def get_next_due_at(db: Session, user_id: int, language_id: int):
+    return (
+        db.query(func.min(models.UserWord.next_review))
+        .join(models.Word, models.Word.id == models.UserWord.word_id)
+        .filter(
+            models.UserWord.user_id == user_id,
+            models.Word.language_id == language_id,
+            models.UserWord.next_review.isnot(None),
+        )
+        .scalar()
+    )

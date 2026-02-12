@@ -1,12 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .database import Base, engine
+from .database import Base
 from .routers import words, languages, users, study, deck, auth, stats, import_export
 from dotenv import load_dotenv
 load_dotenv()
-
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Flashcards API")
 

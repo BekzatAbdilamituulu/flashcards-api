@@ -160,3 +160,14 @@ class WordImportItem(BaseModel):
 
 class WordImportRequest(BaseModel):
 	items: List[WordImportItem]
+
+
+class StudyStatusOut(BaseModel):
+    language_id: int
+    due_count: int
+    new_available_count: int
+    reviewed_today: int
+    new_introduced_today: int
+    remaining_review_quota: int
+    remaining_new_quota: int
+    next_due_at: Optional[datetime] = None
