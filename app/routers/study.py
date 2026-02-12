@@ -76,9 +76,21 @@ def study_word_me(
             status_code=422,
             detail="Provide JSON body {'quality':0..5} or {'correct':true/false} or ?correct=true/false",
         )
+    rec = crud.get_user_word_record(db, current_user.id, word_id)
+    was_review = (rec is not None) and ((rec.times_seen or 0) > 0)
+    result = _apply_review(db, current_user.id, word_id, quality)
+    progress = crud.get_or_create_daily_progress(db, current_user.id)
+    progress.cards_done += 1
 
-    return _apply_review(db, current_user.id, word_id, quality)
+    if was_review:
+        progress.reviews_done += 1
+    else:
+        progress.new_done += 1
 
+    db.add(progress)
+    db.commit()
+
+    return result
 
 
 @router.get("/next", response_model=schemas.DeckOut)

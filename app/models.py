@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Date
 from sqlalchemy.orm import relationship
 from .database import Base
 from datetime import datetime
@@ -13,6 +13,9 @@ class User(Base):
 	languages = relationship("Language", back_populates="owner", cascade="all, delete-orphan")
 	words = relationship("Word", back_populates="owner", cascade="all, delete-orphan")
 
+	#user goals
+	daily_card_target = Column(Integer, default=20, nullable=False)
+	daily_new_target = Column(Integer, default=7, nullable=False)  # optional limiter
 
 class Language(Base):
 	__tablename__ = 'languages'
@@ -55,3 +58,13 @@ class UserWord(Base):
     repetitions = Column(Integer, default=0) #successful reps in a row
     next_review = Column(DateTime, nullable=True)
 
+class DailyProgress(Base):
+    __tablename__ = "daily_progress"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    date = Column(Date, index=True)
+
+    cards_done = Column(Integer, default=0)
+    reviews_done = Column(Integer, default=0)
+    new_done = Column(Integer, default=0)

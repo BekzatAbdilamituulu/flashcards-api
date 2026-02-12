@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
-from datetime import datetime
+from datetime import datetime, date
 
 from . import models, schemas
 
@@ -302,6 +302,60 @@ def get_review_candidates(db: Session, language_id: int, user_id: int):
     )
     return rows
 
+def get_or_create_daily_progress(db, user_id: int):
+    today = date.today()
+
+    row = (
+        db.query(models.DailyProgress)
+        .filter(
+            models.DailyProgress.user_id == user_id,
+            models.DailyProgress.date == today,
+        )
+        .first()
+    )
+
+    if not row:
+        row = models.DailyProgress(
+            user_id=user_id,
+            date=today,
+            cards_done=0,
+            reviews_done=0,
+            new_done=0,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+    return row
+
+def get_weak_words(
+    db: Session,
+    user_id: int,
+    language_id: int,
+    min_seen: int = 3,
+    limit: int = 20,
+):
+    accuracy = (
+        (models.UserWord.times_correct * 1.0) /
+        func.nullif(models.UserWord.times_seen, 0)
+    )
+
+    q = (
+        db.query(models.UserWord)
+        .join(models.Word, models.Word.id == models.UserWord.word_id)
+        .filter(
+            models.UserWord.user_id == user_id,
+            models.Word.language_id == language_id,
+            models.UserWord.times_seen >= min_seen,
+        )
+        .order_by(
+            accuracy.asc()  # lowest accuracy = worst
+        )
+        .limit(limit)
+    )
+
+    return q.all()
+
 
 #srs
 def get_due_reviews(db: Session, language_id: int, user_id: int, limit: int):
@@ -321,7 +375,57 @@ def get_due_reviews(db: Session, language_id: int, user_id: int, limit: int):
         .all()
     )
 
-def get_new_words(db: Session, language_id: int, user_id: int, exclude_word_ids: list[int], limit: int):
+def get_due_reviews_prioritized(
+    db: Session,
+    language_id: int,
+    user_id: int,
+    limit: int,
+    strategy: str = "overdue",
+):
+    """Return due review words with a deterministic priority order.
+
+    strategy:
+      - "overdue": most overdue first (next_review asc)
+      - "weak": lowest accuracy first, then most overdue
+    """
+    now = datetime.utcnow()
+
+    q = (
+        db.query(models.Word)
+        .join(models.UserWord, models.UserWord.word_id == models.Word.id)
+        .filter(
+            models.Word.owner_id == user_id,
+            models.Word.language_id == language_id,
+            models.UserWord.user_id == user_id,
+            models.UserWord.next_review.isnot(None),
+            models.UserWord.next_review <= now,
+        )
+    )
+
+    if strategy == "weak":
+        # accuracy = times_correct / times_seen (lower => weaker). Treat unseen as weakest.
+        accuracy = (
+            func.coalesce(models.UserWord.times_correct, 0)
+            / func.nullif(func.coalesce(models.UserWord.times_seen, 0), 0)
+        )
+        q = q.order_by(accuracy.asc().nullsfirst(), models.UserWord.next_review.asc())
+    else:
+        q = q.order_by(models.UserWord.next_review.asc())
+
+    return q.limit(limit).all()
+
+
+def get_new_words(
+    db: Session,
+    language_id: int,
+    user_id: int,
+    exclude_word_ids: list[int] | None,
+    limit: int,
+):
+    """
+    Returns words that user has never studied yet.
+    """
+
     q = (
         db.query(models.Word)
         .outerjoin(
@@ -334,14 +438,18 @@ def get_new_words(db: Session, language_id: int, user_id: int, exclude_word_ids:
         .filter(
             models.Word.owner_id == user_id,
             models.Word.language_id == language_id,
-            models.UserWord.id.is_(None),  # no progress record => new
+            models.UserWord.id.is_(None),
         )
     )
 
     if exclude_word_ids:
-        q = q.filter(~models.Word.id.in_(exclude_word_ids))
+        q = q.filter(models.Word.id.notin_(exclude_word_ids))
 
-    return q.order_by(models.Word.id.asc()).limit(limit).all()
+    return (
+        q.order_by(models.Word.id.asc())  # deterministic, good for tests
+        .limit(limit)
+        .all()
+    )
 
 
 def count_reviewed_today(db: Session, user_id: int, language_id: int) -> int:

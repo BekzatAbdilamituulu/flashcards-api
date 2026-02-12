@@ -130,6 +130,31 @@ class StudyAnswerIn(BaseModel):
 	correct: Optional[bool] = None
 	quality: Optional[int] = Field(default=None, ge=0, le=5)
 
+class WeakWordOut(BaseModel):
+    word_id: int
+    accuracy: float
+    times_seen: int
+    times_correct: int
+	
+# Today planner
+class TodayPlanItem(BaseModel):
+    word_id: int
+    kind: str  # review | new
+
+
+class TodayPlanOut(BaseModel):
+    language_id: int
+    planned_reviews: int
+    planned_new: int
+    items: list[TodayPlanItem]
+    message: str | None = None
+    backlog_due_count: int
+    backlog_protection_active: bool
+
+
+
+
+
 #-----------Deck
 class DeckOut(BaseModel):
     language_id: int
