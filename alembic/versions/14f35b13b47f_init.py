@@ -1,8 +1,8 @@
 """init
 
-Revision ID: 828f206254fa
+Revision ID: 14f35b13b47f
 Revises: 
-Create Date: 2026-02-12 22:08:25.263505
+Create Date: 2026-02-13 21:34:25.674488
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '828f206254fa'
+revision: str = '14f35b13b47f'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -54,6 +54,19 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_languages_id'), 'languages', ['id'], unique=False)
     op.create_index(op.f('ix_languages_owner_id'), 'languages', ['owner_id'], unique=False)
+    op.create_table('decks',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('name', sa.String(), nullable=False),
+    sa.Column('owner_id', sa.Integer(), nullable=False),
+    sa.Column('source_language_id', sa.Integer(), nullable=False),
+    sa.Column('target_language_id', sa.Integer(), nullable=False),
+    sa.ForeignKeyConstraint(['owner_id'], ['users.id'], ),
+    sa.ForeignKeyConstraint(['source_language_id'], ['languages.id'], ),
+    sa.ForeignKeyConstraint(['target_language_id'], ['languages.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_decks_id'), 'decks', ['id'], unique=False)
+    op.create_index(op.f('ix_decks_owner_id'), 'decks', ['owner_id'], unique=False)
     op.create_table('words',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('text', sa.String(), nullable=False),
@@ -61,6 +74,8 @@ def upgrade() -> None:
     sa.Column('example_sentence', sa.String(), nullable=True),
     sa.Column('owner_id', sa.Integer(), nullable=False),
     sa.Column('language_id', sa.Integer(), nullable=True),
+    sa.Column('deck_id', sa.Integer(), nullable=True),
+    sa.ForeignKeyConstraint(['deck_id'], ['decks.id'], ),
     sa.ForeignKeyConstraint(['language_id'], ['languages.id'], ),
     sa.ForeignKeyConstraint(['owner_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
@@ -95,6 +110,9 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_words_owner_id'), table_name='words')
     op.drop_index(op.f('ix_words_id'), table_name='words')
     op.drop_table('words')
+    op.drop_index(op.f('ix_decks_owner_id'), table_name='decks')
+    op.drop_index(op.f('ix_decks_id'), table_name='decks')
+    op.drop_table('decks')
     op.drop_index(op.f('ix_languages_owner_id'), table_name='languages')
     op.drop_index(op.f('ix_languages_id'), table_name='languages')
     op.drop_table('languages')

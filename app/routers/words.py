@@ -23,6 +23,12 @@ def create_word(
     db: Session = Depends(get_db),
     user=Depends(get_current_user)
 ):
+    try:
+        return crud.create_word(db, word, user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=f"Translation service error: {e}")
     return crud.create_word(db, word, user.id)
 
 

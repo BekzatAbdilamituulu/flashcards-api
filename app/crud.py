@@ -3,7 +3,8 @@ from sqlalchemy import and_, func
 from datetime import datetime, date
 
 from . import models, schemas
-
+from .services import mymemory, examples
+import os
 
 
 # ---------- Languages ----------
@@ -80,11 +81,106 @@ def delete_language(db: Session, language_id: int, user_id: int) -> bool:
     db.commit()
     return True
 
+#Deck
+def create_deck(db: Session, payload: schemas.DecksCreate, user_id: int) -> models.Deck:
+    # Ensure languages belong to the user
+    src = get_language(db, payload.source_language_id, user_id)
+    tgt = get_language(db, payload.target_language_id, user_id)
+    if not src or not tgt:
+        raise ValueError("Invalid source/target language for this user")
+
+    obj = models.Deck(
+        name=payload.name,
+        owner_id=user_id,
+        source_language_id=payload.source_language_id,
+        target_language_id=payload.target_language_id,
+    )
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+def get_decks(db: Session, user_id: int) -> list[models.Deck]:
+    return (
+        db.query(models.Deck)
+        .filter(models.Deck.owner_id == user_id)
+        .order_by(models.Deck.id.desc())
+        .all()
+    )
+
+def get_deck(db: Session, deck_id: int, user_id: int) -> models.Deck | None:
+    return (
+        db.query(models.Deck)
+        .filter(models.Deck.id == deck_id, models.Deck.owner_id == user_id)
+        .first()
+    )
+    
+def delete_deck(db: Session, deck_id: int, user_id: int) -> bool:
+    deck = (
+        db.query(models.Deck)
+        .filter(models.Deck.id == deck_id, models.Deck.owner_id == user_id)
+        .first()
+    )
+    if not deck:
+        return False
+
+    db.delete(deck)
+    db.commit()
+    return True
 
 
 # ---------- Words ----------
 def create_word(db: Session, word: schemas.WordCreate, user_id: int) -> models.Word:
-    obj = models.Word(**word.dict(), owner_id=user_id)
+    data = word.dict()
+
+    # If deck_id provided, infer language pair from deck 
+    deck_id = data.get("deck_id")
+    if deck_id is not None:
+        deck = get_deck(db, deck_id, user_id)
+        if not deck:
+            raise ValueError("Deck not found")
+
+        # Force word.language_id to deck source language unless explicitly provided
+        if not data.get("language_id"):
+            data["language_id"] = deck.source_language_id
+
+        # Determine translation target language from deck
+        src_code = deck.source_language.code or ""
+        tgt_code = deck.target_language.code or ""
+
+        if not src_code or not tgt_code:
+            raise ValueError("Deck languages must have 'code' set (e.g., en, ru)")
+
+        email = os.getenv("MYMEMORY_EMAIL")
+
+        # Auto-translate if requested or translation missing
+        if data.get("auto_translate") or not data.get("translation"):
+            data["translation"] = mymemory.translate(
+                data["text"],
+                src_code,
+                tgt_code,
+                email=email,
+            )
+
+        # Auto example sentence (store bilingual in example_sentence)
+        if data.get("auto_example") and not data.get("example_sentence"):
+            src_sentence = examples.make_example_sentence(data["text"], src_code)
+            if src_sentence:
+                tgt_sentence = mymemory.translate(src_sentence, src_code, tgt_code, email=email)
+                data["example_sentence"] = f"{src_sentence} — {tgt_sentence}"
+
+    # Remove helper flags before SQLAlchemy model init
+    auto_translate = data.pop("auto_translate", None)
+    data.pop("auto_example", None)
+
+    # Legacy mode: require translation + language_id if not using deck
+    if deck_id is None:
+        if not data.get("language_id"):
+            raise ValueError("language_id is required unless deck_id is provided")
+        if not data.get("translation"):
+            raise ValueError("translation is required unless auto_translate is enabled with deck_id")
+
+    obj = models.Word(**data, owner_id=user_id)
     db.add(obj)
     db.commit()
     db.refresh(obj)

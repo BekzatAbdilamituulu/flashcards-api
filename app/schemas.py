@@ -6,13 +6,15 @@ from typing import Optional, List
 
 class WordBase(BaseModel):
     text: str
-    translation: str
-    language_id: int
+    translation: Optional[str] = None
+    language_id: Optional[int] = None
+    deck_id: Optional[int] = None
     example_sentence: Optional[str] = None
 
 
 class WordCreate(WordBase):
-    pass
+    auto_translate: bool = False
+    auto_example: bool = False
 
 
 class WordUpdate(BaseModel):
@@ -44,6 +46,21 @@ class LanguageUpdate(BaseModel):
 
 
 class LanguageOut(LanguageBase):
+    id: int
+    model_config = ConfigDict(from_attributes=True)
+
+# Decks
+class DecksBase(BaseModel):
+    name: str
+    source_language_id: int
+    target_language_id: int
+
+
+class DecksCreate(DecksBase):
+    pass
+
+
+class DecksOut(DecksBase):
     id: int
     model_config = ConfigDict(from_attributes=True)
 

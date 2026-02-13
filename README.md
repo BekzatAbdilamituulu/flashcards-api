@@ -201,9 +201,13 @@ Review intervals:
 mastered (≥3) → 14 days
 Overdue items are prioritized before new content.
 
-### 2026-02-10 — Added Spaced Repetition (SM-2)
+### 2026-02-11 — Added Spaced Repetition (SM-2)
 - Study answers now dynamically calculate the next appearance of a card. Difficult words return sooner, easy words move further away.
 - CSV,JSON Import. Accepts UTF-8 CSV with headers:
+
+### 2026-02-13 — Words are now created inside decks, and each deck defines a language pair.
+- Words are now linked via deck_id. Source and target languages are inferred from the deck.
+- Auto Translation (MyMemory). Cards can automatically receive translations.
 
 ## Author
 
