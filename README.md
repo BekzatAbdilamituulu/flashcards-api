@@ -1,27 +1,41 @@
 # Flashcards Learning API
 
-Backend service for a flashcards learning application with spaced
-repetition, per-user progress tracking, and JWT authentication.
-
-Built with FastAPI as a production-style backend project.
+Built a full-featured spaced repetition backend using FastAPI with authentication, SRS algorithm implementation, deck management, study sessions, and performance analytics.
 
 ------------------------------------------------------------------------
 
 ## Features
 
--   User registration & login (JWT Bearer)
--   Languages and words **owned by the current user** (no global data)
--   Per-user study progress
--   Smart review queue (`/study/next`)
--   Study statistics
--   Words & languages management
--   REST API with OpenAPI/Swagger
--   Automated tests with pytest
--   SQLite for development
--   Dockerized setup
+- JWT Authentication
+- Deck & Card Management
+- Per-User Progress Tracking
+- SM-2 Spaced Repetition Algorithm
+- Smart Study Queue (/study/next)
+- Due / New Card Prioritization
+- Alembic Migrations
+- Dockerized Setup
+- Pytest Test Suite
 
 ------------------------------------------------------------------------
+## Spaced Repetition (SM-2)
 
+Each user has independent scheduling per card:
+
+- repetitions
+- interval
+- ease_factor
+- next_review
+- last_review
+- times_seen
+- times_correct
+
+Scheduling Rules
+- Correct answers increase interval
+- Incorrect answers reset repetitions
+- Cards reappear based on computed next_review
+- Due cards are prioritized
+
+------------------------------------------------------------------------
 ## Tech Stack
 
 -   Python
@@ -34,16 +48,28 @@ Built with FastAPI as a production-style backend project.
 -   Docker
 
 ------------------------------------------------------------------------
-
 ## Architecture
 
-The project follows layered architecture:
+Client (Web / Mobile)
+        ↓
+     FastAPI
+        ↓
+     Routers
+        ↓
+     Services
+        ↓
+       CRUD
+        ↓
+    SQLAlchemy ORM
+        ↓
+     Database
 
-    routers → services → crud → models → database
+![Architecture](docs/architecture.svg)
 
-Auth is implemented via dependency injection using `get_current_user`.
+------------------------------------------------------------------------
+## Database ER Diagram
 
-Passwords are hashed. Plain text passwords are never stored.
+![ER Diagram](docs/er.svg)
 
 ------------------------------------------------------------------------
 
@@ -140,42 +166,6 @@ Response:
 }
 ```
 
-## Main Endpoints
-
-### Languages (user-owned)
-- `GET /languages` — list my languages
-- `POST /languages` — create language
-
-> Planned next: `PATCH /languages/{id}`, `DELETE /languages/{id}`
-
-### Words (user-owned)
-- `GET /words?language_id=<id>` — list words in a language
-- `POST /words` — create word
-- `PUT /words/{word_id}` — update word
-- `DELETE /words/{word_id}` — delete word
-
-### Study
-- `GET /study/next?language_id=<id>&limit=5&random_top=3` — get next review candidate
-- `POST /study/{word_id}` — submit answer and update progress  
-  Body: `{"correct": true}`  
-  (also supports `?correct=true/false`)
-
-> Note: there are legacy endpoints in `study.py` marked “backward-compatible”. They should be removed or fixed (they currently reference an undefined `user_id`).
-
-### Progress (current user)
-- `GET /users/me/progress?language_id=<id>` — progress list for language
-- `GET /users/me/progress/stats?language_id=<id>` — summary stats
-- `DELETE /users/me/progress?language_id=<id>` — reset progress for language
-
-## Example Study Flow
-
-1. Register / login
-2. Create language
-3. Create words
-4. `GET /study/next`
-5. `POST /study/{word_id}` with `{"correct": true/false}`
-6. View progress and stats
-
 ## Running tests
 
 ```bash
@@ -209,6 +199,10 @@ Overdue items are prioritized before new content.
 - Words are now linked via deck_id. Source and target languages are inferred from the deck.
 - Auto Translation (MyMemory). Cards can automatically receive translations.
 
+### 2026-02-13 — Architecture is changed to User -> Deck -> Card -> Progress per card.
+- Create Patch Delet languages if only admin.(User only can get languages)
+- Deck all cards in deck. Deck belongs to user(can be published, draft hidden), user can share with deck with share_code. Edit deck only (owner, editor). 
+- 
 ## Author
 
 Bekzat

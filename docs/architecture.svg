@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="740" viewBox="0 0 1200 740">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"></stop>
+      <stop offset="1" stop-color="#0a0f1a"></stop>
+    </linearGradient>
+
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#121a2b"></stop>
+      <stop offset="1" stop-color="#0f1626"></stop>
+    </linearGradient>
+
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity="0.5"></feDropShadow>
+    </filter>
+
+    <style>
+      .title { font: 700 28px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; fill: #e6edf3; }
+      .subtitle { font: 400 14px ui-sans-serif, system-ui; fill: #9fb0c3; }
+      .box { fill: url(#card); stroke: #2a3a55; stroke-width: 1.2; rx: 18; filter: url(#shadow); }
+      .box2 { fill: url(#card); stroke: #344a6b; stroke-width: 1.1; rx: 16; filter: url(#shadow); }
+      .label { font: 700 16px ui-sans-serif, system-ui; fill: #e6edf3; }
+      .text { font: 400 13px ui-sans-serif, system-ui; fill: #b9c7d6; }
+      .muted { fill: #93a4b7; }
+      .pill { fill: #0b1a33; stroke: #2a3a55; stroke-width: 1; rx: 999; }
+      .pillText { font: 600 12px ui-sans-serif, system-ui; fill: #cfe3ff; }
+      .line { stroke: #5b7aa8; stroke-width: 2; fill: none; }
+      .dline { stroke: #5b7aa8; stroke-width: 2; fill: none; stroke-dasharray: 6 6; }
+      .arrow { marker-end: url(#arrow); }
+      .small { font: 500 12px ui-sans-serif, system-ui; fill: #c7d5e0; }
+    </style>
+
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5b7aa8"></path>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="740" fill="url(#bg)"></rect>
+
+  <!-- Header -->
+  <text x="60" y="70" class="title">Flashcards API (v2) — Architecture</text>
+  <text x="60" y="98" class="subtitle">Deck → Card → UserCardProgress • JWT Auth • SM-2 Scheduling • FastAPI + SQLAlchemy</text>
+
+  <!-- LEFT: Client -->
+  <rect x="60" y="150" width="270" height="160" class="box"></rect>
+  <text x="88" y="186" class="label">Client</text>
+  <text x="88" y="212" class="text">Web / Android / iOS</text>
+  <text x="88" y="236" class="text">Authorization: Bearer &lt;JWT&gt;</text>
+  <text x="88" y="260" class="text">Study UI: front/back, rating</text>
+
+  <rect x="88" y="276" width="210" height="28" class="pill"></rect>
+  <text x="98" y="295" class="pillText">GET /study/next • POST /study/{card_id}</text>
+
+  <!-- CENTER: FastAPI -->
+  <rect x="400" y="140" width="400" height="190" class="box"></rect>
+  <text x="430" y="176" class="label">FastAPI Application</text>
+  <text x="430" y="203" class="text">Routers: auth, decks, study, users</text>
+  <text x="430" y="227" class="text">Dependency Injection: get_current_user, get_db</text>
+  <text x="430" y="251" class="text">Pydantic Schemas: request/response validation</text>
+
+  <rect x="430" y="270" width="150" height="28" class="pill"></rect>
+  <text x="442" y="289" class="pillText">OpenAPI /docs</text>
+
+  <rect x="590" y="270" width="180" height="28" class="pill"></rect>
+  <text x="603" y="289" class="pillText">JWT + OAuth2 Bearer</text>
+
+  <!-- RIGHT TOP: Services -->
+  <rect x="860" y="150" width="280" height="180" class="box"></rect>
+  <text x="890" y="186" class="label">Services Layer</text>
+  <text x="890" y="212" class="text">security.py: hashing + JWT</text>
+  <text x="890" y="236" class="text">srs.py: SM-2 scheduling</text>
+  <text x="890" y="260" class="text">Pure logic (easy to test)</text>
+
+  <rect x="890" y="276" width="220" height="28" class="pill"></rect>
+  <text x="902" y="295" class="pillText">SM-2: interval • EF • next_review</text>
+
+  <!-- CENTER BOTTOM: CRUD -->
+  <rect x="400" y="380" width="400" height="170" class="box2"></rect>
+  <text x="430" y="416" class="label">CRUD Layer</text>
+  <text x="430" y="442" class="text">Central DB access (queries + transactions)</text>
+  <text x="430" y="466" class="text">Deck access checks + ownership rules</text>
+  <text x="430" y="490" class="text">Create cards / update progress / stats</text>
+
+  <rect x="430" y="506" width="320" height="28" class="pill"></rect>
+  <text x="442" y="525" class="pillText">require_deck_access • get_or_create_progress • update_review</text>
+
+  <!-- RIGHT BOTTOM: Models + DB -->
+  <rect x="860" y="380" width="280" height="240" class="box2"></rect>
+  <text x="890" y="416" class="label">Models + Database</text>
+  <text x="890" y="442" class="text">SQLAlchemy ORM models</text>
+  <text x="890" y="466" class="text">User • Deck • Card • UserCardProgress</text>
+  <text x="890" y="490" class="text">SQLite (dev) / Postgres (prod)</text>
+
+  <rect x="890" y="510" width="220" height="28" class="pill"></rect>
+  <text x="902" y="529" class="pillText">Alembic migrations</text>
+
+  <!-- Domain mini-diagram -->
+  <text x="890" y="570" class="small">Domain:</text>
+  <text x="890" y="594" class="text">User → Deck → Card → UserCardProgress</text>
+
+  <!-- Lines / Arrows -->
+  <!-- Client -> FastAPI -->
+  <path d="M 330 230 C 360 230, 370 230, 400 230" class="line arrow"></path>
+
+  <!-- FastAPI -> Services (auth + srs) -->
+  <path d="M 800 220 C 825 220, 835 220, 860 220" class="line arrow"></path>
+
+  <!-- FastAPI -> CRUD -->
+  <path d="M 600 330 C 600 345, 600 360, 600 380" class="line arrow"></path>
+
+  <!-- CRUD -> DB -->
+  <path d="M 800 465 C 825 465, 835 465, 860 465" class="line arrow"></path>
+
+  <!-- Services -> CRUD (scheduling used in study handlers) -->
+  <path d="M 1000 330 C 950 345, 880 365, 800 420" class="dline arrow"></path>
+
+  <!-- JWT note -->
+  <rect x="520" y="110" width="160" height="28" class="pill"></rect>
+  <text x="535" y="129" class="pillText">JWT identifies user_id</text>
+
+  <!-- Footer -->
+  <text x="60" y="700" class="subtitle">
+    Tip: keep routers thin; put scheduling and policy logic in services/ + crud/. This keeps testing fast and refactoring safe.
+  </text>
+</svg>

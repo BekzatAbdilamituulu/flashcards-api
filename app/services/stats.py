@@ -3,7 +3,17 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
-from ..services.deck import interval_for, MASTERED 
+
+MASTERED = 3
+
+def interval_for(uw) -> timedelta:
+    if (uw.times_correct or 0) >= 3:
+        return timedelta(days=14)
+    if (uw.times_correct or 0) == 2:
+        return timedelta(days=3)
+    if (uw.times_correct or 0) == 1:
+        return timedelta(days=1)
+    return timedelta(minutes=10)
 
 
 def get_language_stats(db: Session, user_id: int, language_id: int) -> schemas.StatsOut:

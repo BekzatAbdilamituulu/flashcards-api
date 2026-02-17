@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from .database import get_db
 from . import crud
 from .services.security import decode_token
+import os
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
@@ -27,3 +28,15 @@ def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_
         )
 
     return user
+
+
+def require_admin(current_user=Depends(get_current_user)):
+    """Very small admin gate.
+
+    Set env ADMIN_USERNAMES="admin,alice" (comma-separated).
+    """
+    raw = os.getenv("ADMIN_USERNAMES", "admin")
+    admins = {u.strip() for u in raw.split(",") if u.strip()}
+    if current_user.username not in admins:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
+    return current_user
