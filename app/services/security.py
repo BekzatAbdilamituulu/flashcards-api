@@ -4,15 +4,14 @@ from typing import Optional
 
 from jose import jwt, JWTError
 from passlib.context import CryptContext
-
 import os
+from app.config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# TODO: move to env vars later
-SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
+SECRET_KEY = settings.secret_key
+ALGORITHM = settings.algorithm
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.access_token_expire_minutes
 
 
 def hash_password(password: str) -> str:

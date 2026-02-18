@@ -9,8 +9,6 @@ from .routers import (
     decks,
     study,
 )
-from dotenv import load_dotenv
-load_dotenv()
 
 app = FastAPI(title="Flashcards API")
 
@@ -28,3 +26,5 @@ app.include_router(users.router)
 app.include_router(languages.router)
 app.include_router(decks.router)
 app.include_router(study.router)
+
+
