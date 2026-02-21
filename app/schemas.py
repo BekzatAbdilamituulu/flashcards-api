@@ -1,9 +1,10 @@
 
 from __future__ import annotations
-
+from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from datetime import datetime
-from typing import Optional, List
+from datetime import datetime, date
+from typing import Optional, List, Generic, TypeVar
+from enum import Enum
 
 
 # ----------------- CARD SECTION -----------------
@@ -28,6 +29,43 @@ class CardOut(CardBase):
     id: int
     deck_id: int
     model_config = ConfigDict(from_attributes=True)
+
+
+class InboxWordIn(BaseModel):
+    front: str = Field(min_length=1, max_length=200)
+    back: Optional[str] = Field(default=None, max_length=500)
+    example_sentence: Optional[str] = Field(default=None, max_length=500)
+
+    # optional: allow client to define languages for Inbox creation
+    source_language_id: Optional[int] = None
+    target_language_id: Optional[int] = None
+
+class InboxWordOut(BaseModel):
+    deck_id: int
+    card: CardOut 
+
+
+class InboxBulkIn(BaseModel):
+    text: str = Field(..., examples=[""])
+    delimiter: Optional[str] = Field(default=None, examples=["—", "-", ":", "	"])
+    # Optional: if user's defaults are not set yet, you may pass language IDs here.
+    source_language_id: Optional[int] = Field(default=None, ge=1)
+    target_language_id: Optional[int] = Field(default=None, ge=1)
+    dry_run: bool = False
+
+class BulkItemResult(BaseModel):
+    line: str
+    status: str  # "created" | "skipped" | "failed"
+    reason: Optional[str] = None
+    card_id: Optional[int] = None
+
+class InboxBulkOut(BaseModel):
+    deck_id: int
+    created: int
+    skipped: int
+    failed: int
+    results: List[BulkItemResult]
+
 
 
 # --------------- LANGUAGE SECTION -------------------
@@ -70,6 +108,25 @@ class DeckOut(DeckBase):
     shared_code: Optional[str] = None
     model_config = ConfigDict(from_attributes=True, use_enum_values=True)
 
+class DeckUpdate(BaseModel):
+    name: Optional[str] = None
+    is_public: Optional[bool] = None
+
+class DeckStatus(str, Enum):
+    DRAFT = "DRAFT"
+    PUBLISHED = "PUBLISHED"
+
+class UnshareOut(BaseModel):
+    deck_id: int
+    shared_code: Optional[str] = None
+    is_public: bool
+
+class DeckPublishOut(BaseModel):
+    deck_id: int
+    status: str
+    is_public: bool
+    shared_code: Optional[str] = None
+
 
 # ----------------- USER SECTION -----------------
 
@@ -86,7 +143,14 @@ class TokenOut(BaseModel):
 class UserOut(BaseModel):
     id: int
     username: str
+    default_source_language_id: Optional[int] = None
+    default_target_language_id: Optional[int] = None
     model_config = ConfigDict(from_attributes=True)
+
+
+class UserLanguageDefaultsIn(BaseModel):
+    default_source_language_id: int = Field(ge=1)
+    default_target_language_id: int = Field(ge=1)
 
 
 # ----------------- STUDY / PROGRESS -----------------
@@ -127,3 +191,27 @@ class StudyStatusOut(BaseModel):
     remaining_review_quota: int
     remaining_new_quota: int
     next_due_at: Optional[datetime] = None
+
+T = TypeVar("T")
+
+class PageMeta(BaseModel):
+    limit: int 
+    offset: int 
+    total: int 
+    has_more: bool
+
+class Page(BaseModel, Generic[T]):
+    items: List[T]
+    meta: PageMeta
+
+
+class DailyProgressOut(BaseModel):
+    date: date
+    cards_done: int
+    reviews_done: int
+    new_done: int
+
+class DailyProgressRangeOut(BaseModel):
+    from_date: date
+    to_date: date
+    items: list[DailyProgressOut]
