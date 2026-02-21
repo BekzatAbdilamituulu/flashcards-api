@@ -78,15 +78,13 @@ def study_card_me(
     was_review = (rec is not None) and ((rec.times_seen or 0) > 0)
 
     result = _apply_review(db, current_user.id, card_id, quality)
-
-    progress = crud.get_or_create_daily_progress(db, current_user.id)
-    progress.cards_done += 1
+    dp = crud.get_or_create_daily_progress(db, user_id=current_user.id)
+    dp.cards_done += 1
     if was_review:
-        progress.reviews_done += 1
+        dp.reviews_done += 1
     else:
-        progress.new_done += 1
+        dp.new_done += 1
 
-    db.add(progress)
     db.commit()
 
     return result
@@ -102,7 +100,7 @@ def next_study(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    limit = max(1, min(limit, 50))
+    limit = max(1, min(limit, 20))
     new_ratio = max(0.0, min(new_ratio, 1.0))
 
     # quotas (per deck)
@@ -118,10 +116,23 @@ def next_study(
     target_reviews = min(target_reviews, remaining_review_quota)
     target_new = min(limit - target_reviews, remaining_new_quota)
 
-    review_cards = crud.get_due_reviews(db, deck_id, current_user.id, target_reviews)
-
+    review_cards, review_total = crud.get_due_reviews(
+        db,
+        deck_id,
+        current_user.id,
+        limit=target_reviews,
+        offset=0,
+    )
     remaining = min(limit - len(review_cards), remaining_new_quota)
-    new_cards = crud.get_new_words(db, deck_id, current_user.id, [c.id for c in review_cards], remaining)
+
+    new_cards, new_total = crud.get_new_cards(
+        db,
+        deck_id,
+        current_user.id,
+        [c.id for c in review_cards],
+        limit=remaining,
+        offset=0,
+    )
 
     cards = review_cards + new_cards
     return {"deck_id": deck_id, "count": len(cards), "cards": cards}

@@ -34,6 +34,9 @@ class User(Base):
     daily_card_target = Column(Integer, default=20, nullable=False)
     daily_new_target = Column(Integer, default=7, nullable=False)
 
+    default_source_language_id = Column(Integer, ForeignKey("languages.id"), nullable=True)
+    default_target_language_id = Column(Integer, ForeignKey("languages.id"), nullable=True)
+
     # relationships
     decks = relationship("Deck", back_populates="owner", cascade="all, delete-orphan")
     shared_decks = relationship("DeckAccess", back_populates="user", cascade="all, delete-orphan")
@@ -113,11 +116,16 @@ class Card(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     front = Column(String, nullable=False)
+    front_norm = Column(String, nullable=False, index=True)
     back = Column(String, nullable=False)
     example_sentence = Column(String, nullable=True)
 
     deck_id = Column(Integer, ForeignKey("decks.id"), nullable=False, index=True)
     deck = relationship("Deck", back_populates="cards")
+
+    __table_args__ = (
+        UniqueConstraint("deck_id", "front_norm", name="uq_cards_deck_front_norm"),
+    )
 
 
 class UserCardProgress(Base):

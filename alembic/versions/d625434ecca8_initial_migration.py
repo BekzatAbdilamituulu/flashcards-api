@@ -1,8 +1,8 @@
-"""init
+"""Initial migration
 
-Revision ID: c982112421ff
+Revision ID: d625434ecca8
 Revises: 
-Create Date: 2026-02-17 22:40:09.486137
+Create Date: 2026-02-21 13:50:21.172887
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'c982112421ff'
+revision: str = 'd625434ecca8'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -36,6 +36,10 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('daily_card_target', sa.Integer(), nullable=False),
     sa.Column('daily_new_target', sa.Integer(), nullable=False),
+    sa.Column('default_source_language_id', sa.Integer(), nullable=True),
+    sa.Column('default_target_language_id', sa.Integer(), nullable=True),
+    sa.ForeignKeyConstraint(['default_source_language_id'], ['languages.id'], ),
+    sa.ForeignKeyConstraint(['default_target_language_id'], ['languages.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_users_id'), 'users', ['id'], unique=False)
@@ -73,13 +77,16 @@ def upgrade() -> None:
     op.create_table('cards',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('front', sa.String(), nullable=False),
+    sa.Column('front_norm', sa.String(), nullable=False),
     sa.Column('back', sa.String(), nullable=False),
     sa.Column('example_sentence', sa.String(), nullable=True),
     sa.Column('deck_id', sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(['deck_id'], ['decks.id'], ),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('deck_id', 'front_norm', name='uq_cards_deck_front_norm')
     )
     op.create_index(op.f('ix_cards_deck_id'), 'cards', ['deck_id'], unique=False)
+    op.create_index(op.f('ix_cards_front_norm'), 'cards', ['front_norm'], unique=False)
     op.create_index(op.f('ix_cards_id'), 'cards', ['id'], unique=False)
     op.create_table('deck_access',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -131,6 +138,7 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_deck_access_deck_id'), table_name='deck_access')
     op.drop_table('deck_access')
     op.drop_index(op.f('ix_cards_id'), table_name='cards')
+    op.drop_index(op.f('ix_cards_front_norm'), table_name='cards')
     op.drop_index(op.f('ix_cards_deck_id'), table_name='cards')
     op.drop_table('cards')
     op.drop_index(op.f('ix_decks_owner_id'), table_name='decks')
