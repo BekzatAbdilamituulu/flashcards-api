@@ -3,6 +3,14 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+import os
+
+
+os.environ.setdefault("DATABASE_URL", "sqlite:///./data/test_flashcards.db")
+os.environ.setdefault("SECRET_KEY", "test-secret")
+os.environ.setdefault("ALGORITHM", "HS256")
+os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
+
 
 
 from app.database import Base, get_db

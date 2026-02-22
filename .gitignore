@@ -23,7 +23,7 @@ data/
 # OS
 .DS_Store
 
-
+*.zip
 
 
 
