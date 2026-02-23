@@ -55,7 +55,7 @@ def test_users_progress_endpoints(client):
     assert r.json() == []
 
     # study one card -> progress should exist
-    r = client.post(f"/study/{c1['id']}", json={"correct": True}, headers=auth_headers(token))
+    r = client.post(f"/study/{c1['id']}", json={"learned": True}, headers=auth_headers(token))
     assert r.status_code == 200, r.text
 
     r = client.get("/users/me/progress", params={"deck_id": deck_id}, headers=auth_headers(token))

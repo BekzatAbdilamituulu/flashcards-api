@@ -10,6 +10,7 @@ from .routers import (
     decks,
     study,
     inbox,
+    progress,
 )
 
 app = FastAPI(title="Flashcards API")
@@ -30,5 +31,6 @@ app.include_router(languages.router)
 app.include_router(inbox.router)
 app.include_router(decks.router)
 app.include_router(study.router)
+app.include_router(progress.router)
 
 

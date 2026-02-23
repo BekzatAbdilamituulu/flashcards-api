@@ -32,7 +32,7 @@ def get_my_progress(
         .join(models.Card, models.Card.id == models.UserCardProgress.card_id)
         .filter(models.UserCardProgress.user_id == current_user.id)
         .filter(models.Card.deck_id == deck_id)
-        .order_by(models.UserCardProgress.next_review.asc().nulls_last(), models.UserCardProgress.id.asc())
+        .order_by(models.UserCardProgress.due_at.asc().nulls_last(), models.UserCardProgress.id.asc())
         .all()
     )
     return progress

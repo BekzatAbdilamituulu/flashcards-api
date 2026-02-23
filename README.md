@@ -21,20 +21,20 @@ Built a full-featured spaced repetition backend using FastAPI with authenticatio
 
 Each user has independent scheduling per card:
 
-- repetitions
-- interval
-- ease_factor
-- next_review
-- last_review
-- times_seen
-- times_correct
+- status (new | learning | mastered)
+- stage (1..5 when learning)
+- due_at (datetime)
 
-Scheduling Rules
-- Correct answers increase interval
-- Incorrect answers reset repetitions
-- Cards reappear based on computed next_review
-- Due cards are prioritized
+| Stage | Delay After Correct Answer | Description                |
+| ----- | -------------------------- | -------------------------- |
+| 1     | ~45 seconds                | Current session repeat     |
+| 2     | +5 minutes                 | Short-term reinforcement   |
+| 3     | +1 hour                    | Medium reinforcement       |
+| 4     | +12 hours                  | Daily memory consolidation |
+| 5     | +72 hours                  | Long-term memory check     |
 
+- After passing Stage 5, the card becomes: status = 'mastered', due_at = None(next update to 30day)
+- Wrong Answer Behavior: The card drops only one stage back, not fully reset.
 ------------------------------------------------------------------------
 ## Tech Stack
 
@@ -199,10 +199,13 @@ Overdue items are prioritized before new content.
 - Words are now linked via deck_id. Source and target languages are inferred from the deck.
 - Auto Translation (MyMemory). Cards can automatically receive translations.
 
-### 2026-02-13 — Architecture is changed to User -> Deck -> Card -> Progress per card.
+### 2026-02-14 — Architecture is changed to User -> Deck -> Card -> Progress per card.
 - Create Patch Delet languages if only admin.(User only can get languages)
 - Deck all cards in deck. Deck belongs to user(can be published, draft hidden), user can share with deck with share_code. Edit deck only (owner, editor). 
-- 
+
+### 2026-02-23 — Learning stages
+
+
 ## Author
 
 Bekzat

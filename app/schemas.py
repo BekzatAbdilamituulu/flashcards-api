@@ -28,6 +28,7 @@ class CardUpdate(BaseModel):
 class CardOut(CardBase):
     id: int
     deck_id: int
+    created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -154,26 +155,27 @@ class UserLanguageDefaultsIn(BaseModel):
 
 
 # ----------------- STUDY / PROGRESS -----------------
+class ProgressStatus(str, Enum):
+    NEW = "new"
+    LEARNING = "learning"
+    MASTERED = "mastered"
 
 class UserCardProgressOut(BaseModel):
     user_id: int
     card_id: int
     times_seen: int
     times_correct: int
-    status: str
+    status: ProgressStatus  # new | learning | mastered
 
-    ease_factor: Optional[float] = None
-    interval_days: Optional[int] = None
-    repetitions: Optional[int] = None
+    stage: Optional[int] = None      # 1..5 when learning
     last_review: Optional[datetime] = None
-    next_review: Optional[datetime] = None
+    due_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class StudyAnswerIn(BaseModel):
-    correct: Optional[bool] = None
-    quality: Optional[int] = Field(default=None, ge=0, le=5)
+    learned: bool
 
 
 class StudyBatchOut(BaseModel):
@@ -215,3 +217,37 @@ class DailyProgressRangeOut(BaseModel):
     from_date: date
     to_date: date
     items: list[DailyProgressOut]
+
+class StreakOut(BaseModel):
+    current_streak: int
+    best_streak: int
+    threshold: int = 10
+
+class TodayAddedOut(BaseModel):
+    date: date
+    count: int
+
+class ProgressSummaryOut(BaseModel):
+    date: date  # Bishkek today
+
+    # Today metrics
+    today_cards_done: int
+    today_reviews_done: int
+    today_new_done: int
+    today_added_cards: int
+
+    # Streak (threshold-based)
+    current_streak: int
+    best_streak: int
+    streak_threshold: int
+
+    # Study queue info (optional deck_id filter)
+    due_count: int
+    new_available_count: int
+    next_due_at: Optional[datetime] = None
+
+    # Progress totals (optional deck_id filter)
+    total_cards: int
+    total_mastered: int
+    total_learning: int
+    total_new: int

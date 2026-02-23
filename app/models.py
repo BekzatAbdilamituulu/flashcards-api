@@ -10,7 +10,6 @@ from sqlalchemy import (
     Date,
     DateTime,
     Enum,
-    Float,
     ForeignKey,
     Integer,
     String,
@@ -119,6 +118,7 @@ class Card(Base):
     front_norm = Column(String, nullable=False, index=True)
     back = Column(String, nullable=False)
     example_sentence = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     deck_id = Column(Integer, ForeignKey("decks.id"), nullable=False, index=True)
     deck = relationship("Deck", back_populates="cards")
@@ -143,15 +143,19 @@ class UserCardProgress(Base):
     times_correct = Column(Integer, default=0)
     last_review = Column(DateTime, nullable=True)
 
-    # SM-2 scheduling fields
-    ease_factor = Column(Float, default=2.5)
-    interval_days = Column(Integer, default=0)
-    repetitions = Column(Integer, default=0)
-    next_review = Column(DateTime, nullable=True, index=True)
+    # 3-state scheduler
+    # status: new | learning | mastered
+    status = Column(String, default="new", nullable=False)
+
+    # stage only used for "learning" (1..5)
+    stage = Column(Integer, nullable=True)
+
+    # next time card is eligible to show (for NEW/LEARNING)
+    due_at = Column(DateTime, nullable=True, index=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "card_id", name="uq_user_card_progress_user_card"),
-        Index("ix_user_words_user_next_review", "user_id", "next_review"),
+        Index("ix_user_card_progress_user_due_at", "user_id", "due_at"),
     )
 
 

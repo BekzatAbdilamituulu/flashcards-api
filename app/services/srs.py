@@ -1,70 +1,71 @@
-import random
+from __future__ import annotations
+
 from dataclasses import dataclass
-
-@dataclass
-class Sm2State:
-    ease_factor: float
-    interval_days: int
-    repetitions: int
+from datetime import datetime, timedelta
 
 
-def sm2_update(
-    state: Sm2State,
-    quality: int,
-    *,
-    # more frequent reviews (default cap)
-    max_interval_days: int = 21,
+SMALL_DELAY_SECONDS = 45  # "after few cards" approximation
 
-    # learning phase steps (first successes)
-    learning_steps: tuple[int, ...] = (1, 2, 4, 7),
 
-    # gentler EF bounds
-    min_ef: float = 1.3,
-    max_ef: float = 2.4,
+@dataclass(frozen=True)
+class SrsResult:
+    status: str           # new | learning | mastered
+    stage: int | None     # 1..5 when learning
+    due_at: datetime | None
 
-    # slow reminding growth
-    interval_multiplier: float = 0.85,
 
-    # optional randomness
-    fuzz: float = 0.05,
-) -> Sm2State:
+def schedule_next(*, status: str, stage: int | None, learned: bool, now: datetime) -> SrsResult:
     """
-    Vocab-friendly SM-2 variant:
-    - Wrong (q<3): reset reps, short interval
-    - Right (q>=3): use learning steps for first N successes
-    - After learning: grow interval gently and cap it
+    3 states:
+      - new
+      - learning (stage 1..5)
+      - mastered
+
+    5 learning stages:
+      1: current section (soon)
+      2: +5 minutes
+      3: +1 hour
+      4: +12 hours
+      5: +72 hours  -> if passed, become MASTERED
     """
-    q = max(0, min(int(quality), 5))
+    # MASTERED stays mastered (for now)
+    if status == "mastered":
+        return SrsResult(status="mastered", stage=stage, due_at=None)
 
-    ef = float(state.ease_factor or 2.2)
-    interval = int(state.interval_days or 0)
-    reps = int(state.repetitions or 0)
+    # NEW state rules
+    if status == "new":
+        if not learned:
+            # still new, see again soon
+            return SrsResult(status="new", stage=None, due_at=now + timedelta(seconds=SMALL_DELAY_SECONDS))
 
-    if q < 3:
-        # WRONG -> see it again soon
-        reps = 0
-        interval = 0
-        # make it a bit harder next time
-        ef = max(min_ef, ef - 0.15)
-    else:
-        reps += 1
+        # learned == True: enter ladder
+        return SrsResult(status="learning", stage=1, due_at=now + timedelta(seconds=SMALL_DELAY_SECONDS))
 
-        # learning steps: 1,2,4,7 days
-        if reps <= len(learning_steps):
-            interval = learning_steps[reps - 1]
-        else:
-            # gentle growth after graduation
-            interval = max(1, int(round(interval * ef * interval_multiplier)))
+    # LEARNING rules
+    if status == "learning":
+        cur_stage = int(stage or 1)
 
-        # small EF adjustment for success
-        ef = min(max_ef, ef + 0.05)
+        if not learned:
+            # softer: drop only 1 stage (min 1), repeat soon
+            new_stage = max(1, cur_stage - 1)
+            return SrsResult(
+                status="learning",
+                stage=new_stage,
+                due_at=now + timedelta(seconds=SMALL_DELAY_SECONDS),
+            )
 
-    # guardrails
-    interval = min(max_interval_days, max(1, interval))
+        # learned == True: move forward
+        if cur_stage == 1:
+            return SrsResult(status="learning", stage=2, due_at=now + timedelta(minutes=5))
+        if cur_stage == 2:
+            return SrsResult(status="learning", stage=3, due_at=now + timedelta(hours=1))
+        if cur_stage == 3:
+            return SrsResult(status="learning", stage=4, due_at=now + timedelta(hours=12))
+        if cur_stage == 4:
+            return SrsResult(status="learning", stage=5, due_at=now + timedelta(hours=72))
 
-    # fuzz (optional)
-    if interval > 2 and fuzz > 0:
-        interval = int(round(interval * (1 + random.uniform(-fuzz, fuzz))))
-        interval = min(max_interval_days, max(1, interval))
+        # cur_stage >= 5 and learned == True => MASTERED
+        return SrsResult(status="mastered", stage=5, due_at=None)
 
-    return Sm2State(ease_factor=ef, interval_days=interval, repetitions=reps)
+    # fallback
+    return SrsResult(status="new", stage=None, due_at=now + timedelta(seconds=SMALL_DELAY_SECONDS))

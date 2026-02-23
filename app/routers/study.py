@@ -1,21 +1,20 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from .. import crud, schemas
-from ..services.srs import sm2_update, Sm2State
+from ..services.srs import schedule_next
 from ..deps import get_current_user
 
 router = APIRouter(prefix="/study", tags=["study"])
 
 
-def _apply_review(db: Session, user_id: int, card_id: int, quality: int) -> schemas.UserCardProgressOut:
+def _apply_review(db: Session, user_id: int, card_id: int, learned: bool) -> schemas.UserCardProgressOut:
     card = crud.get_card(db, card_id, user_id)
     if not card:
         raise HTTPException(status_code=404, detail="Card not found or no access")
@@ -24,25 +23,28 @@ def _apply_review(db: Session, user_id: int, card_id: int, quality: int) -> sche
     if not rec:
         rec = crud.create_user_card_progress(db, user_id, card_id)
 
+    now = datetime.utcnow()
+
+    # stats
     rec.times_seen = (rec.times_seen or 0) + 1
-    if quality >= 3:
+    if learned:
         rec.times_correct = (rec.times_correct or 0) + 1
 
-    state = Sm2State(
-        ease_factor=rec.ease_factor or 2.5,
-        interval_days=rec.interval_days or 0,
-        repetitions=rec.repetitions or 0,
+    # default status
+    rec.status = rec.status or "new"
+
+    # compute next scheduling
+    res = schedule_next(
+        status=rec.status,
+        stage=rec.stage,
+        learned=learned,
+        now=now,
     )
 
-    new_state = sm2_update(state, quality)
-
-    rec.ease_factor = new_state.ease_factor
-    rec.interval_days = new_state.interval_days
-    rec.repetitions = new_state.repetitions
-
-    now = datetime.utcnow()
+    rec.status = res.status
+    rec.stage = res.stage
+    rec.due_at = res.due_at
     rec.last_review = now
-    rec.next_review = now + timedelta(days=rec.interval_days)
 
     db.commit()
     db.refresh(rec)
@@ -52,32 +54,15 @@ def _apply_review(db: Session, user_id: int, card_id: int, quality: int) -> sche
 @router.post("/{card_id}", response_model=schemas.UserCardProgressOut)
 def study_card_me(
     card_id: int,
-    payload: Optional[schemas.StudyAnswerIn] = None,
-    correct: Optional[bool] = Query(default=None),
+    payload: schemas.StudyAnswerIn,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # prefer body
-    if payload is not None:
-        if payload.quality is not None:
-            quality = payload.quality
-        elif payload.correct is not None:
-            quality = 4 if payload.correct else 1
-        else:
-            raise HTTPException(status_code=422, detail="Provide 'quality' or 'correct'")
-    # fallback query param
-    elif correct is not None:
-        quality = 4 if correct else 1
-    else:
-        raise HTTPException(
-            status_code=422,
-            detail="Provide JSON body {'quality':0..5} or {'correct':true/false} or ?correct=true/false",
-        )
-
     rec = crud.get_user_card_progress(db, current_user.id, card_id)
     was_review = (rec is not None) and ((rec.times_seen or 0) > 0)
 
-    result = _apply_review(db, current_user.id, card_id, quality)
+    result = _apply_review(db, current_user.id, card_id, payload.learned)
+
     dp = crud.get_or_create_daily_progress(db, user_id=current_user.id)
     dp.cards_done += 1
     if was_review:
@@ -86,7 +71,6 @@ def study_card_me(
         dp.new_done += 1
 
     db.commit()
-
     return result
 
 

@@ -1,16 +1,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, List
 
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import and_, or_, func
 
 from . import models
 import re
 import secrets
+from app.utils.time import bishkek_today, bishkek_day_bounds
 
 
 # ----------------- Permissions -----------------
@@ -533,13 +535,11 @@ def get_due_reviews(
             ),
         )
         .filter(
+            models.UserCardProgress.user_id == user_id,
             models.Card.deck_id == deck_id,
-            models.UserCardProgress.next_review.isnot(None),
-            models.UserCardProgress.next_review <= now,
-        )
-        .order_by(
-            models.UserCardProgress.next_review.asc(),
-            models.Card.id.asc(),  # stable ordering
+            models.UserCardProgress.status == "learning",
+            models.UserCardProgress.due_at.isnot(None),
+            models.UserCardProgress.due_at <= now,
         )
     )
 
@@ -560,6 +560,8 @@ def get_new_cards(
 ):
     require_deck_access(db, user_id, deck_id)
 
+    now = datetime.utcnow()
+
     base_q = (
         db.query(models.Card)
         .outerjoin(
@@ -569,11 +571,20 @@ def get_new_cards(
                 models.UserCardProgress.user_id == user_id,
             ),
         )
+        .filter(models.Card.deck_id == deck_id)
         .filter(
-            models.Card.deck_id == deck_id,
-            models.UserCardProgress.id.is_(None),
+            or_(
+                models.UserCardProgress.id.is_(None),
+                and_(
+                    models.UserCardProgress.status == "new",
+                or_(
+                    models.UserCardProgress.due_at.is_(None),
+                    models.UserCardProgress.due_at <= now,
+                ),
+            ),
         )
     )
+)
 
     if exclude_card_ids:
         base_q = base_q.filter(models.Card.id.notin_(exclude_card_ids))
@@ -590,6 +601,155 @@ def get_new_cards(
 def _utc_day_start(now: datetime) -> datetime:
     return datetime(now.year, now.month, now.day)
 
+def utc_day_bounds(now: datetime):
+    start = datetime(now.year, now.month, now.day)
+    end = start + timedelta(days=1)
+    return start, end
+
+def count_cards_created_on_day(db: Session, user_id: int, d: date, deck_id: int | None = None) -> int:
+    start, end = bishkek_day_bounds(d)
+
+    q = (
+        db.query(models.Card)
+        .join(models.DeckAccess, models.DeckAccess.deck_id == models.Card.deck_id)
+        .filter(
+            models.DeckAccess.user_id == user_id,
+            models.Card.created_at >= start,
+            models.Card.created_at < end,
+        )
+    )
+    if deck_id is not None:
+        q = q.filter(models.Card.deck_id == deck_id)
+    return q.count()
+
+
+def list_cards_created_on_day(
+    db: Session,
+    user_id: int,
+    d: date,
+    deck_id: int | None = None,
+    limit: int = 50,
+):
+    start, end = bishkek_day_bounds(d)
+
+    q = (
+        db.query(models.Card)
+        .join(models.DeckAccess, models.DeckAccess.deck_id == models.Card.deck_id)
+        .filter(
+            models.DeckAccess.user_id == user_id,
+            models.Card.created_at >= start,
+            models.Card.created_at < end,
+        )
+        .order_by(models.Card.created_at.desc())
+        .limit(limit)
+    )
+    if deck_id is not None:
+        q = q.filter(models.Card.deck_id == deck_id)
+    return q.all()
+
+def get_daily_progress_filled(db: Session, user_id: int, from_date: date, to_date: date):
+    rows = get_daily_progress(db, user_id, from_date, to_date)
+    by_date = {r.date: r for r in rows}
+
+    cur = from_date
+    out = []
+    while cur <= to_date:
+        r = by_date.get(cur)
+        if r:
+            out.append(r)
+        else:
+            # return zero row (not persisted)
+            out.append(models.DailyProgress(
+                user_id=user_id,
+                date=cur,
+                cards_done=0,
+                reviews_done=0,
+                new_done=0,
+            ))
+        cur = cur + timedelta(days=1)
+    return out
+
+
+def get_daily_progress_filled(db: Session, user_id: int, from_date: date, to_date: date):
+    rows = get_daily_progress(db, user_id, from_date, to_date)
+    by_date = {r.date: r for r in rows}
+
+    cur = from_date
+    out = []
+    while cur <= to_date:
+        r = by_date.get(cur)
+        if r:
+            out.append(r)
+        else:
+            out.append(models.DailyProgress(
+                user_id=user_id,
+                date=cur,
+                cards_done=0,
+                reviews_done=0,
+                new_done=0,
+            ))
+        cur = cur + timedelta(days=1)
+    return out
+
+def get_streak(db: Session, user_id: int, *, threshold: int = 10) -> dict:
+    # use Bishkek day
+    today = bishkek_today()
+    from_date = today - timedelta(days=400)
+
+    rows = (
+        db.query(models.DailyProgress)
+        .filter(
+            models.DailyProgress.user_id == user_id,
+            models.DailyProgress.date >= from_date,
+            models.DailyProgress.date <= today,
+            models.DailyProgress.cards_done >= threshold,
+        )
+        .order_by(models.DailyProgress.date.asc())
+        .all()
+    )
+    active = {r.date for r in rows}
+
+    def best_streak(active_dates: set[date]) -> int:
+        if not active_dates:
+            return 0
+        best = 0
+        for d in sorted(active_dates):
+            if (d - timedelta(days=1)) not in active_dates:
+                run = 1
+                nxt = d + timedelta(days=1)
+                while nxt in active_dates:
+                    run += 1
+                    nxt += timedelta(days=1)
+                best = max(best, run)
+        return best
+
+    # streak can end today if today is active, else end yesterday if active
+    end = today if today in active else (today - timedelta(days=1))
+    if end not in active:
+        return {"current_streak": 0, "best_streak": best_streak(active), "threshold": threshold}
+
+    cur = 0
+    d = end
+    while d in active:
+        cur += 1
+        d = d - timedelta(days=1)
+
+    return {"current_streak": cur, "best_streak": best_streak(active), "threshold": threshold}
+
+def _best_streak(active_dates: set[date]) -> int:
+    if not active_dates:
+        return 0
+    best = 0
+    for d in sorted(active_dates):
+        # compute streak start at d
+        if (d - timedelta(days=1)) not in active_dates:
+            run = 1
+            nxt = d + timedelta(days=1)
+            while nxt in active_dates:
+                run += 1
+                nxt += timedelta(days=1)
+            best = max(best, run)
+    return best
 
 def count_reviewed_today(db: Session, user_id: int, deck_id: int) -> int:
     now = datetime.utcnow()
@@ -635,14 +795,16 @@ def count_due_reviews(db: Session, user_id: int, deck_id: int) -> int:
         .filter(
             models.UserCardProgress.user_id == user_id,
             models.Card.deck_id == deck_id,
-            models.UserCardProgress.next_review.isnot(None),
-            models.UserCardProgress.next_review <= now,
+            models.UserCardProgress.status == "learning",
+            models.UserCardProgress.due_at.isnot(None),
+            models.UserCardProgress.due_at <= now,
         )
         .count()
     )
 
-
 def count_new_available(db: Session, user_id: int, deck_id: int) -> int:
+    now = datetime.utcnow()
+
     return (
         db.query(models.Card)
         .outerjoin(
@@ -654,20 +816,29 @@ def count_new_available(db: Session, user_id: int, deck_id: int) -> int:
         )
         .filter(
             models.Card.deck_id == deck_id,
-            models.UserCardProgress.id.is_(None),
+            or_(
+                models.UserCardProgress.id.is_(None),
+                and_(
+                    models.UserCardProgress.status == "new",
+                    or_(
+                        models.UserCardProgress.due_at.is_(None),
+                        models.UserCardProgress.due_at <= now,
+                    ),
+                ),
+            ),
         )
         .count()
     )
 
-
 def get_next_due_at(db: Session, user_id: int, deck_id: int):
     return (
-        db.query(func.min(models.UserCardProgress.next_review))
+        db.query(func.min(models.UserCardProgress.due_at))
         .join(models.Card, models.Card.id == models.UserCardProgress.card_id)
         .filter(
             models.UserCardProgress.user_id == user_id,
             models.Card.deck_id == deck_id,
-            models.UserCardProgress.next_review.isnot(None),
+            models.UserCardProgress.status == "learning",
+            models.UserCardProgress.due_at.isnot(None),
         )
         .scalar()
     )
@@ -681,7 +852,7 @@ def get_or_create_daily_progress(
     day: date | None = None,
 ):
     if day is None:
-        day = date.today()
+        day = bishkek_today()
 
     row = (
         db.query(models.DailyProgress)
@@ -727,3 +898,62 @@ def get_daily_progress(
         .order_by(models.DailyProgress.date.asc())
         .all()
     )
+
+def get_daily_progress_for_day(db: Session, user_id: int, day: date):
+    row = (
+        db.query(models.DailyProgress)
+        .filter(models.DailyProgress.user_id == user_id, models.DailyProgress.date == day)
+        .first()
+    )
+    if row:
+        return row
+    # not persisted -> return zero-like object
+    return models.DailyProgress(user_id=user_id, date=day, cards_done=0, reviews_done=0, new_done=0)
+
+def count_total_cards(db: Session, user_id: int, deck_id: int | None = None) -> int:
+    q = (
+        db.query(models.Card)
+        .join(models.DeckAccess, models.DeckAccess.deck_id == models.Card.deck_id)
+        .filter(models.DeckAccess.user_id == user_id)
+    )
+    if deck_id is not None:
+        q = q.filter(models.Card.deck_id == deck_id)
+    return q.count()
+
+def count_progress_statuses(db: Session, user_id: int, deck_id: int | None = None) -> dict:
+    # mastered + learning from progress rows
+    q = (
+        db.query(models.UserCardProgress.status, func.count(models.UserCardProgress.id))
+        .join(models.Card, models.Card.id == models.UserCardProgress.card_id)
+        .filter(models.UserCardProgress.user_id == user_id)
+    )
+    if deck_id is not None:
+        q = q.filter(models.Card.deck_id == deck_id)
+
+    rows = q.group_by(models.UserCardProgress.status).all()
+    counts = {"mastered": 0, "learning": 0, "new": 0}
+    for status, c in rows:
+        if status in counts:
+            counts[status] = int(c)
+
+    # new cards also include cards without any progress row
+    q2 = (
+        db.query(models.Card)
+        .outerjoin(
+            models.UserCardProgress,
+            and_(
+                models.UserCardProgress.card_id == models.Card.id,
+                models.UserCardProgress.user_id == user_id,
+            ),
+        )
+        .join(models.DeckAccess, models.DeckAccess.deck_id == models.Card.deck_id)
+        .filter(
+            models.DeckAccess.user_id == user_id,
+            models.UserCardProgress.id.is_(None),
+        )
+    )
+    if deck_id is not None:
+        q2 = q2.filter(models.Card.deck_id == deck_id)
+
+    counts["new"] += q2.count()
+    return counts

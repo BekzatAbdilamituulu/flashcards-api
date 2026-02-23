@@ -125,3 +125,34 @@ def add_card(client: TestClient, token: str, deck_id: int, front: str, back: str
     )
     assert r.status_code == 201, r.text
     return r.json()
+
+@pytest.fixture()
+def user_token(client):
+    # one normal user for stage tests
+    _, token = create_user_and_token(client, "user")
+    return token
+    
+@pytest.fixture()
+def token_headers(user_token):
+    return auth_headers(user_token)
+
+@pytest.fixture()
+def make_deck_with_cards(client, user_token):
+    def _make(n=1):
+        # admin creates languages
+        _, admin_token = create_user_and_token(client, "admin")
+
+        en_id = admin_create_language(client, admin_token, "English", "en")
+        ru_id = admin_create_language(client, admin_token, "Russian", "ru")
+
+        # IMPORTANT: deck created by same user_token
+        deck_id = create_deck(client, user_token, "Deck", en_id, ru_id)
+
+        cards = []
+        for i in range(n):
+            c = add_card(client, user_token, deck_id, f"word{i}", f"слово{i}")
+            cards.append(c)
+
+        return deck_id, cards
+
+    return _make

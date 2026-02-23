@@ -19,9 +19,9 @@ def test_daily_progress_range_returns_rows(client):
     c2 = add_card(client, token, deck_id, "bye", "пока")
 
     # Do some study to create DailyProgress rows
-    r = client.post(f"/study/{c1['id']}", json={"correct": True}, headers=auth_headers(token))
+    r = client.post(f"/study/{c1['id']}", json={"learned": True}, headers=auth_headers(token))
     assert r.status_code == 200, r.text
-    r = client.post(f"/study/{c2['id']}", json={"correct": True}, headers=auth_headers(token))
+    r = client.post(f"/study/{c2['id']}", json={"learned": False}, headers=auth_headers(token))
     assert r.status_code == 200, r.text
 
     today = date.today()
