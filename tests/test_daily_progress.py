@@ -19,14 +19,14 @@ def test_daily_progress_range_returns_rows(client):
     c2 = add_card(client, token, deck_id, "bye", "пока")
 
     # Do some study to create DailyProgress rows
-    r = client.post(f"/study/{c1['id']}", json={"learned": True}, headers=auth_headers(token))
+    r = client.post(f"/api/v1/study/{c1['id']}", json={"learned": True}, headers=auth_headers(token))
     assert r.status_code == 200, r.text
-    r = client.post(f"/study/{c2['id']}", json={"learned": False}, headers=auth_headers(token))
+    r = client.post(f"/api/v1/study/{c2['id']}", json={"learned": False}, headers=auth_headers(token))
     assert r.status_code == 200, r.text
 
     today = date.today()
     r = client.get(
-        "/users/me/daily-progress",
+        "/api/v1/users/me/daily-progress",
         params={"from_date": today.isoformat(), "to_date": today.isoformat()},
         headers=auth_headers(token),
     )
@@ -47,7 +47,7 @@ def test_daily_progress_invalid_range(client):
     d2 = d1 - timedelta(days=1)
 
     r = client.get(
-        "/users/me/daily-progress",
+        "/api/v1/users/me/daily-progress",
         params={"from_date": d1.isoformat(), "to_date": d2.isoformat()},
         headers=auth_headers(token),
     )

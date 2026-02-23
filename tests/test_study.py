@@ -20,7 +20,7 @@ def test_stage1_wrong_stays_stage1(client, token_headers, make_deck_with_cards):
 
 def _post_learned(client, token_headers, card_id: int, learned: bool):
     return client.post(
-        f"/study/{card_id}",
+        f"/api/v1/study/{card_id}",
         json={"learned": learned},
         headers=token_headers,
     )
@@ -28,7 +28,7 @@ def _post_learned(client, token_headers, card_id: int, learned: bool):
 def _get_progress(client, token_headers, card_id: int):
     # You already have /users/me/progress endpoint in tests
     # but easiest: call it and filter by card_id
-    r = client.get("/users/me/progress", headers=token_headers)
+    r = client.get("/api/v1/users/me/progress", headers=token_headers)
     assert r.status_code == 200
     items = r.json().get("items", r.json())
     # items may be list or dict depending on your endpoint; adapt if needed
@@ -49,14 +49,14 @@ def test_study_next_and_status_and_review_flow(client):
     c2 = add_card(client, token, deck_id, "bye", "пока")
 
     # status before studying
-    r = client.get("/study/status", params={"deck_id": deck_id}, headers=auth_headers(token))
+    r = client.get("/api/v1/study/status", params={"deck_id": deck_id}, headers=auth_headers(token))
     assert r.status_code == 200, r.text
     status1 = r.json()
     assert status1["deck_id"] == deck_id
     assert status1["new_available_count"] >= 2
 
     # next batch
-    r = client.get("/study/next", params={"deck_id": deck_id, "limit": 2, "new_ratio": 1.0}, headers=auth_headers(token))
+    r = client.get("/api/v1/study/next", params={"deck_id": deck_id, "limit": 2, "new_ratio": 1.0}, headers=auth_headers(token))
     assert r.status_code == 200, r.text
     batch = r.json()
     assert batch["deck_id"] == deck_id
@@ -64,18 +64,18 @@ def test_study_next_and_status_and_review_flow(client):
     assert len(batch["cards"]) == batch["count"]
 
     # study card (body correct)
-    r = client.post(f"/study/{c1['id']}", json={"learned": True}, headers=auth_headers(token))
+    r = client.post(f"/api/v1/study/{c1['id']}", json={"learned": True}, headers=auth_headers(token))
     assert r.status_code == 200, r.text
     prog = r.json()
     assert prog["card_id"] == c1["id"]
     assert prog["times_seen"] >= 1
 
     # study card (quality)
-    r = client.post(f"/study/{c2['id']}", json={"learned": False}, headers=auth_headers(token))
+    r = client.post(f"/api/v1/study/{c2['id']}", json={"learned": False}, headers=auth_headers(token))
     assert r.status_code == 200, r.text
 
     # status after studying: reviewed_today/new_introduced_today change
-    r = client.get("/study/status", params={"deck_id": deck_id}, headers=auth_headers(token))
+    r = client.get("/api/v1/study/status", params={"deck_id": deck_id}, headers=auth_headers(token))
     assert r.status_code == 200, r.text
     status2 = r.json()
     assert status2["reviewed_today"] >= 0
@@ -91,7 +91,7 @@ def test_study_requires_input(client):
     deck_id = create_deck(client, token, "D", en_id, ru_id)
     c1 = add_card(client, token, deck_id, "hello", "привет")
 
-    r = client.post(f"/study/{c1['id']}", headers=auth_headers(token))
+    r = client.post(f"/api/v1/study/{c1['id']}", headers=auth_headers(token))
     assert r.status_code == 422, r.text
 
 def test_learning_stage2_fail_does_not_advance(client, token_headers, make_deck_with_cards):

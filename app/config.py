@@ -7,7 +7,10 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     secret_key: str = "dev-secret-change-me"
     access_token_expire_minutes: int = 30
-    database_url: str = "sqlite:///./data/app.db"
+    refresh_token_expire_days: int 
+    refresh_secret_key: str
+
+    database_url: str 
 
     model_config = SettingsConfigDict(
         env_file=".env",

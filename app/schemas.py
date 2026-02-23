@@ -129,6 +129,28 @@ class DeckPublishOut(BaseModel):
     shared_code: Optional[str] = None
 
 
+# ----------------- LIBRARY -----------------
+
+class LibraryDeckOut(BaseModel):
+    id: int
+    name: str
+    source_language_id: int
+    target_language_id: int
+    deck_type: str  # "library"
+    cards_count: int
+
+
+class ImportCardIn(BaseModel):
+    target_deck_id: int = Field(ge=1)
+
+
+class ImportCardOut(BaseModel):
+    imported: bool
+    skipped: bool
+    reason: Optional[str] = None
+    card: Optional[CardOut] = None
+
+
 # ----------------- USER SECTION -----------------
 
 class RegisterIn(BaseModel):
@@ -138,7 +160,12 @@ class RegisterIn(BaseModel):
 
 class TokenOut(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
+
+
+class RefreshIn(BaseModel):
+    refresh_token: str
 
 
 class UserOut(BaseModel):

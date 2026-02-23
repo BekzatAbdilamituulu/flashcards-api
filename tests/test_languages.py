@@ -14,14 +14,14 @@ def test_admin_languages_crud_and_user_list(client):
     ru_id = admin_create_language(client, admin_token, "Russian", "ru")
 
     # user can list languages
-    r = client.get("/languages", headers=auth_headers(user_token))
+    r = client.get("/api/v1/languages", headers=auth_headers(user_token))
     assert r.status_code == 200, r.text
     codes = {x["code"] for x in r.json()}
     assert "en" in codes and "ru" in codes
 
     # admin update
     r = client.patch(
-        f"/admin/languages/{ru_id}",
+        f"/api/v1/admin/languages/{ru_id}",
         json={"name": "Русский", "code": "ru"},
         headers=auth_headers(admin_token),
     )
@@ -30,7 +30,7 @@ def test_admin_languages_crud_and_user_list(client):
 
     # duplicate code should 409
     r = client.post(
-        "/admin/languages",
+        "/api/v1/admin/languages",
         json={"name": "English 2", "code": "en"},
         headers=auth_headers(admin_token),
     )
@@ -38,19 +38,19 @@ def test_admin_languages_crud_and_user_list(client):
 
     # non-admin cannot create
     r = client.post(
-        "/admin/languages",
+        "/api/v1/admin/languages",
         json={"name": "German", "code": "de"},
         headers=auth_headers(user_token),
     )
     assert r.status_code == 403
 
     # delete
-    r = client.delete(f"/admin/languages/{en_id}", headers=auth_headers(admin_token))
+    r = client.delete(f"/api/v1/admin/languages/{en_id}", headers=auth_headers(admin_token))
     assert r.status_code == 204
 
     # deleted not found
     r = client.patch(
-        f"/admin/languages/{en_id}",
+        f"/api/v1/admin/languages/{en_id}",
         json={"name": "English", "code": "en"},
         headers=auth_headers(admin_token),
     )

@@ -13,7 +13,7 @@ def test_inbox_quick_add_creates_inbox_deck_and_card(client):
     ru_id = admin_create_language(client, admin_token, "Russian", "ru")
 
     r = client.post(
-        "/inbox/word",
+        "/api/v1/inbox/word",
         json={
             "front": "apple",
             "back": "яблоко",
@@ -46,7 +46,7 @@ justfront
 
     # dry_run: returns preview items and counts, no inserts
     r = client.post(
-        "/inbox/bulk",
+        "/api/v1/inbox/bulk",
         json={
             "text": text,
             "delimiter": None,
@@ -63,7 +63,7 @@ justfront
 
     # real insert
     r = client.post(
-        "/inbox/bulk",
+        "/api/v1/inbox/bulk",
         json={
             "text": text,
             "delimiter": None,

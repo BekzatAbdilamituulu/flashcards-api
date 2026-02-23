@@ -18,19 +18,19 @@ def test_progress_month_returns_full_calendar(client):
     c1 = add_card(client, token, deck_id, "hello", "привет")
 
     # Study 1 card once (still below streak threshold, but will create daily progress row)
-    r = client.post(f"/study/{c1['id']}", json={"learned": True}, headers=auth_headers(token))
+    r = client.post(f"/api/v1/study/{c1['id']}", json={"learned": True}, headers=auth_headers(token))
     assert r.status_code == 200, r.text
 
     # Ask month view for the current month (use server date assumptions)
     # We cannot easily know exact month here; so just request a fixed month like 2026-02 if your tests run on that date.
     # Better: request month of "today" returned by /progress/today-added.
-    t = client.get("/progress/today-added", headers=auth_headers(token))
+    t = client.get("/api/v1/progress/today-added", headers=auth_headers(token))
     assert t.status_code == 200, t.text
     today = date.fromisoformat(t.json()["date"])
     year = today.year
     month = today.month
 
-    r = client.get("/progress/month", params={"year": year, "month": month}, headers=auth_headers(token))
+    r = client.get("/api/v1/progress/month", params={"year": year, "month": month}, headers=auth_headers(token))
     assert r.status_code == 200, r.text
     data = r.json()
 
@@ -61,19 +61,19 @@ def test_streak_threshold_10_cards(client):
 
     # study 9 cards -> streak should be 0 (threshold=10)
     for i in range(9):
-        r = client.post(f"/study/{cards[i]['id']}", json={"learned": True}, headers=auth_headers(token))
+        r = client.post(f"/api/v1/study/{cards[i]['id']}", json={"learned": True}, headers=auth_headers(token))
         assert r.status_code == 200, r.text
 
-    r = client.get("/progress/streak", headers=auth_headers(token))
+    r = client.get("/api/v1/progress/streak", headers=auth_headers(token))
     assert r.status_code == 200, r.text
     assert r.json()["threshold"] == 10
     assert r.json()["current_streak"] == 0
 
     # study 10th card -> now cards_done=10 today -> streak becomes 1
-    r = client.post(f"/study/{cards[9]['id']}", json={"learned": True}, headers=auth_headers(token))
+    r = client.post(f"/api/v1/study/{cards[9]['id']}", json={"learned": True}, headers=auth_headers(token))
     assert r.status_code == 200, r.text
 
-    r = client.get("/progress/streak", headers=auth_headers(token))
+    r = client.get("/api/v1/progress/streak", headers=auth_headers(token))
     assert r.status_code == 200, r.text
     assert r.json()["current_streak"] == 1
 
@@ -85,13 +85,13 @@ def test_today_added_cards_count(client):
     ru_id = admin_create_language(client, admin_token, "Russian", "ru")
     deck_id = create_deck(client, token, "D", en_id, ru_id)
 
-    r = client.get("/progress/today-added", headers=auth_headers(token))
+    r = client.get("/api/v1/progress/today-added", headers=auth_headers(token))
     assert r.status_code == 200, r.text
     before = r.json()["count"]
 
     add_card(client, token, deck_id, "hello", "привет")
 
-    r = client.get("/progress/today-added", headers=auth_headers(token))
+    r = client.get("/api/v1/progress/today-added", headers=auth_headers(token))
     assert r.status_code == 200, r.text
     after = r.json()["count"]
 
@@ -107,7 +107,7 @@ def test_progress_summary_basic(client):
 
     add_card(client, token, deck_id, "hello", "привет")
 
-    r = client.get("/progress/summary", params={"deck_id": deck_id}, headers=auth_headers(token))
+    r = client.get("/api/v1/progress/summary", params={"deck_id": deck_id}, headers=auth_headers(token))
     assert r.status_code == 200, r.text
     data = r.json()
 

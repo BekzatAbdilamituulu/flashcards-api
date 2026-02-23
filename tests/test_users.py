@@ -14,13 +14,13 @@ def test_users_me_and_set_default_languages(client):
     en_id = admin_create_language(client, admin_token, "English", "en")
     ru_id = admin_create_language(client, admin_token, "Russian", "ru")
 
-    r = client.get("/users/me", headers=auth_headers(token))
+    r = client.get("/api/v1/users/me", headers=auth_headers(token))
     assert r.status_code == 200
     assert r.json()["username"] == "user"
 
     # set defaults
     r = client.put(
-        "/users/me/languages",
+        "/api/v1/users/me/languages",
         json={"default_source_language_id": en_id, "default_target_language_id": ru_id},
         headers=auth_headers(token),
     )
@@ -31,7 +31,7 @@ def test_users_me_and_set_default_languages(client):
 
     # invalid: same language
     r = client.put(
-        "/users/me/languages",
+        "/api/v1/users/me/languages",
         json={"default_source_language_id": en_id, "default_target_language_id": en_id},
         headers=auth_headers(token),
     )
@@ -50,20 +50,20 @@ def test_users_progress_endpoints(client):
     c2 = add_card(client, token, deck_id, "bye", "пока")
 
     # progress starts empty
-    r = client.get("/users/me/progress", params={"deck_id": deck_id}, headers=auth_headers(token))
+    r = client.get("/api/v1/users/me/progress", params={"deck_id": deck_id}, headers=auth_headers(token))
     assert r.status_code == 200
     assert r.json() == []
 
     # study one card -> progress should exist
-    r = client.post(f"/study/{c1['id']}", json={"learned": True}, headers=auth_headers(token))
+    r = client.post(f"/api/v1/study/{c1['id']}", json={"learned": True}, headers=auth_headers(token))
     assert r.status_code == 200, r.text
 
-    r = client.get("/users/me/progress", params={"deck_id": deck_id}, headers=auth_headers(token))
+    r = client.get("/api/v1/users/me/progress", params={"deck_id": deck_id}, headers=auth_headers(token))
     assert r.status_code == 200
     assert len(r.json()) == 1
 
     # stats
-    r = client.get("/users/me/progress/stats", params={"deck_id": deck_id}, headers=auth_headers(token))
+    r = client.get("/api/v1/users/me/progress/stats", params={"deck_id": deck_id}, headers=auth_headers(token))
     assert r.status_code == 200
     stats = r.json()
     assert stats["deck_id"] == deck_id
@@ -71,10 +71,10 @@ def test_users_progress_endpoints(client):
     assert "new_available_count" in stats
 
     # reset progress
-    r = client.delete("/users/me/progress", params={"deck_id": deck_id}, headers=auth_headers(token))
+    r = client.delete("/api/v1/users/me/progress", params={"deck_id": deck_id}, headers=auth_headers(token))
     assert r.status_code == 200
     assert r.json()["deleted"] >= 1
 
-    r = client.get("/users/me/progress", params={"deck_id": deck_id}, headers=auth_headers(token))
+    r = client.get("/api/v1/users/me/progress", params={"deck_id": deck_id}, headers=auth_headers(token))
     assert r.status_code == 200
     assert r.json() == []

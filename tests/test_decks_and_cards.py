@@ -16,21 +16,21 @@ def test_decks_create_list_get_delete(client):
 
     deck_id = create_deck(client, token, "My Deck", en_id, ru_id)
 
-    r = client.get("/decks", headers=auth_headers(token))
+    r = client.get("/api/v1/decks", headers=auth_headers(token))
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["meta"]["total"] == 1
     assert body["items"][0]["id"] == deck_id
 
-    r = client.get(f"/decks/{deck_id}", headers=auth_headers(token))
+    r = client.get(f"/api/v1/decks/{deck_id}", headers=auth_headers(token))
     assert r.status_code == 200
     assert r.json()["name"] == "My Deck"
 
     # delete
-    r = client.delete(f"/decks/{deck_id}", headers=auth_headers(token))
+    r = client.delete(f"/api/v1/decks/{deck_id}", headers=auth_headers(token))
     assert r.status_code == 204
 
-    r = client.get(f"/decks/{deck_id}", headers=auth_headers(token))
+    r = client.get(f"/api/v1/decks/{deck_id}", headers=auth_headers(token))
     assert r.status_code == 404
 
 
@@ -45,13 +45,13 @@ def test_cards_create_list_duplicate(client):
     c1 = add_card(client, token, deck_id, "Hello", "привет", "hello world")
     assert c1["front"] == "Hello"
 
-    r = client.get(f"/decks/{deck_id}/cards", headers=auth_headers(token))
+    r = client.get(f"/api/v1/decks/{deck_id}/cards", headers=auth_headers(token))
     assert r.status_code == 200
     assert r.json()["meta"]["total"] == 1
 
     # front_norm duplicates should fail (Hello == hello)
     r = client.post(
-        f"/decks/{deck_id}/cards",
+        f"/api/v1/decks/{deck_id}/cards",
         json={"front": "hello", "back": "x", "example_sentence": None},
         headers=auth_headers(token),
     )
@@ -68,12 +68,12 @@ def test_share_link_and_join_as_viewer(client):
     ru_id = admin_create_language(client, admin_token, "Russian", "ru")
     deck_id = create_deck(client, owner_token, "Shared", en_id, ru_id)
 
-    r = client.post(f"/decks/{deck_id}/share-link", headers=auth_headers(owner_token))
+    r = client.post(f"/api/v1/decks/{deck_id}/share-link", headers=auth_headers(owner_token))
     assert r.status_code == 200, r.text
     shared_code = r.json()["shared_code"]
     assert shared_code
 
-    r = client.post(f"/decks/join/{shared_code}", headers=auth_headers(viewer_token))
+    r = client.post(f"/api/v1/decks/join/{shared_code}", headers=auth_headers(viewer_token))
     assert r.status_code == 201, r.text
     assert r.json()["deck_id"] == deck_id
     assert r.json()["role"] in ("viewer", "VIEWER")  # depends on your enum serialization
@@ -100,7 +100,7 @@ def test_card_update_and_delete_requires_endpoints(client):
 
     # update back + example
     r = client.patch(
-        f"/decks/{deck_id}/cards/{c1['id']}",
+        f"/api/v1/decks/{deck_id}/cards/{c1['id']}",
         json={"back": "привет!!!", "example_sentence": "ex2"},
         headers=auth_headers(owner_token),
     )
@@ -110,7 +110,7 @@ def test_card_update_and_delete_requires_endpoints(client):
 
     # duplicate front should fail
     r = client.patch(
-        f"/decks/{deck_id}/cards/{c1['id']}",
+        f"/api/v1/decks/{deck_id}/cards/{c1['id']}",
         json={"front": "bye"},
         headers=auth_headers(owner_token),
     )
@@ -118,29 +118,29 @@ def test_card_update_and_delete_requires_endpoints(client):
     assert "duplicate" in r.json()["detail"].lower()
 
     # share & join viewer
-    r = client.post(f"/decks/{deck_id}/share-link", headers=auth_headers(owner_token))
+    r = client.post(f"/api/v1/decks/{deck_id}/share-link", headers=auth_headers(owner_token))
     assert r.status_code == 200
     code = r.json()["shared_code"]
-    r = client.post(f"/decks/join/{code}", headers=auth_headers(viewer_token))
+    r = client.post(f"/api/v1/decks/join/{code}", headers=auth_headers(viewer_token))
     assert r.status_code == 201
 
     # viewer cannot update/delete
     r = client.patch(
-        f"/decks/{deck_id}/cards/{c1['id']}",
+        f"/api/v1/decks/{deck_id}/cards/{c1['id']}",
         json={"back": "nope"},
         headers=auth_headers(viewer_token),
     )
     assert r.status_code == 403, r.text
 
-    r = client.delete(f"/decks/{deck_id}/cards/{c2['id']}", headers=auth_headers(viewer_token))
+    r = client.delete(f"/api/v1/decks/{deck_id}/cards/{c2['id']}", headers=auth_headers(viewer_token))
     assert r.status_code == 403, r.text
 
     # owner delete
-    r = client.delete(f"/decks/{deck_id}/cards/{c2['id']}", headers=auth_headers(owner_token))
+    r = client.delete(f"/api/v1/decks/{deck_id}/cards/{c2['id']}", headers=auth_headers(owner_token))
     assert r.status_code == 204, r.text
 
     # list doesn't include deleted
-    r = client.get(f"/decks/{deck_id}/cards", headers=auth_headers(owner_token))
+    r = client.get(f"/api/v1/decks/{deck_id}/cards", headers=auth_headers(owner_token))
     assert r.status_code == 200
     ids = {x["id"] for x in r.json()["items"]}
     assert c2["id"] not in ids
@@ -155,12 +155,12 @@ def test_deck_rename_publish_unpublish_unshare(client):
     deck_id = create_deck(client, owner_token, "Old", en_id, ru_id)
 
     # rename owner
-    r = client.patch(f"/decks/{deck_id}", json={"name": "New"}, headers=auth_headers(owner_token))
+    r = client.patch(f"/api/v1/decks/{deck_id}", json={"name": "New"}, headers=auth_headers(owner_token))
     assert r.status_code == 200, r.text
     assert r.json()["name"] == "New"
 
     # publish owner (private)
-    r = client.post(f"/decks/{deck_id}/publish", headers=auth_headers(owner_token))
+    r = client.post(f"/api/v1/decks/{deck_id}/publish", headers=auth_headers(owner_token))
     assert r.status_code == 200, r.text
     out = r.json()
     assert out["deck_id"] == deck_id
@@ -171,27 +171,27 @@ def test_deck_rename_publish_unpublish_unshare(client):
     code = out["shared_code"]
 
     # viewer joins using shared code (join endpoint you already have)
-    r = client.post(f"/decks/join/{code}", headers=auth_headers(viewer_token))
+    r = client.post(f"/api/v1/decks/join/{code}", headers=auth_headers(viewer_token))
     assert r.status_code == 201, r.text
 
     # viewer cannot publish/unpublish/unshare
-    r = client.post(f"/decks/{deck_id}/unpublish", headers=auth_headers(viewer_token))
+    r = client.post(f"/api/v1/decks/{deck_id}/unpublish", headers=auth_headers(viewer_token))
     assert r.status_code == 403, r.text
-    r = client.post(f"/decks/{deck_id}/unshare", headers=auth_headers(viewer_token))
+    r = client.post(f"/api/v1/decks/{deck_id}/unshare", headers=auth_headers(viewer_token))
     assert r.status_code == 403, r.text
 
     # make public (owner)
-    r = client.patch(f"/decks/{deck_id}", json={"is_public": True}, headers=auth_headers(owner_token))
+    r = client.patch(f"/api/v1/decks/{deck_id}", json={"is_public": True}, headers=auth_headers(owner_token))
     assert r.status_code == 200, r.text
     assert r.json()["is_public"] is True
 
     # unshare (owner) -> shared_code cleared, but status stays published
-    r = client.post(f"/decks/{deck_id}/unshare", headers=auth_headers(owner_token))
+    r = client.post(f"/api/v1/decks/{deck_id}/unshare", headers=auth_headers(owner_token))
     assert r.status_code == 200, r.text
     assert r.json()["shared_code"] is None
 
     # unpublish (owner) -> draft + private + no share
-    r = client.post(f"/decks/{deck_id}/unpublish", headers=auth_headers(owner_token))
+    r = client.post(f"/api/v1/decks/{deck_id}/unpublish", headers=auth_headers(owner_token))
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "draft"
     assert r.json()["is_public"] is False
@@ -206,6 +206,6 @@ def test_cannot_make_draft_public(client):
     ru_id = admin_create_language(client, admin_token, "Russian", "ru")
     deck_id = create_deck(client, owner_token, "D", en_id, ru_id)
 
-    r = client.patch(f"/decks/{deck_id}", json={"is_public": True}, headers=auth_headers(owner_token))
+    r = client.patch(f"/api/v1/decks/{deck_id}", json={"is_public": True}, headers=auth_headers(owner_token))
     assert r.status_code == 400, r.text
     assert "publish" in r.json()["detail"].lower()

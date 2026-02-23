@@ -1,8 +1,8 @@
 """Initial migration
 
-Revision ID: 1a3c38f915a9
+Revision ID: a1df40a8324a
 Revises: 
-Create Date: 2026-02-23 13:19:48.273905
+Create Date: 2026-02-23 16:09:28.913001
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '1a3c38f915a9'
+revision: str = 'a1df40a8324a'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -64,6 +64,7 @@ def upgrade() -> None:
     sa.Column('is_public', sa.Boolean(), nullable=False),
     sa.Column('status', sa.Enum('DRAFT', 'PUBLISHED', 'HIDDEN', name='deckstatus'), nullable=False),
     sa.Column('shared_code', sa.String(), nullable=True),
+    sa.Column('deck_type', sa.String(), nullable=False),
     sa.Column('source_language_id', sa.Integer(), nullable=False),
     sa.Column('target_language_id', sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(['owner_id'], ['users.id'], ),
@@ -72,8 +73,24 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('shared_code')
     )
+    op.create_index(op.f('ix_decks_deck_type'), 'decks', ['deck_type'], unique=False)
     op.create_index(op.f('ix_decks_id'), 'decks', ['id'], unique=False)
     op.create_index(op.f('ix_decks_owner_id'), 'decks', ['owner_id'], unique=False)
+    op.create_table('refresh_tokens',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('jti', sa.String(length=36), nullable=False),
+    sa.Column('token_hash', sa.String(length=64), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('expires_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('revoked_at', sa.DateTime(timezone=True), nullable=True),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_refresh_tokens_jti'), 'refresh_tokens', ['jti'], unique=True)
+    op.create_index(op.f('ix_refresh_tokens_token_hash'), 'refresh_tokens', ['token_hash'], unique=False)
+    op.create_index(op.f('ix_refresh_tokens_user_id'), 'refresh_tokens', ['user_id'], unique=False)
+    op.create_index('ix_refresh_tokens_user_revoked', 'refresh_tokens', ['user_id', 'revoked_at'], unique=False)
     op.create_table('cards',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('front', sa.String(), nullable=False),
@@ -142,8 +159,14 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_cards_deck_id'), table_name='cards')
     op.drop_index(op.f('ix_cards_created_at'), table_name='cards')
     op.drop_table('cards')
+    op.drop_index('ix_refresh_tokens_user_revoked', table_name='refresh_tokens')
+    op.drop_index(op.f('ix_refresh_tokens_user_id'), table_name='refresh_tokens')
+    op.drop_index(op.f('ix_refresh_tokens_token_hash'), table_name='refresh_tokens')
+    op.drop_index(op.f('ix_refresh_tokens_jti'), table_name='refresh_tokens')
+    op.drop_table('refresh_tokens')
     op.drop_index(op.f('ix_decks_owner_id'), table_name='decks')
     op.drop_index(op.f('ix_decks_id'), table_name='decks')
+    op.drop_index(op.f('ix_decks_deck_type'), table_name='decks')
     op.drop_table('decks')
     op.drop_index(op.f('ix_daily_progress_user_id'), table_name='daily_progress')
     op.drop_index(op.f('ix_daily_progress_date'), table_name='daily_progress')

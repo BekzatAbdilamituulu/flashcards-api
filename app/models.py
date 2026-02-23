@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 import enum
 
 from sqlalchemy import (
@@ -15,10 +15,12 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     Index,
+    func,
 )
 from sqlalchemy.orm import relationship
 
 from .database import Base
+import uuid
 
 
 class User(Base):
@@ -39,6 +41,26 @@ class User(Base):
     # relationships
     decks = relationship("Deck", back_populates="owner", cascade="all, delete-orphan")
     shared_decks = relationship("DeckAccess", back_populates="user", cascade="all, delete-orphan")
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # jti is inside JWT; unique per refresh token
+    jti = Column(String(36), nullable=False, unique=True, index=True)
+
+    # store only hash of refresh token (never store raw token)
+    token_hash = Column(String(64), nullable=False, index=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+    user = relationship("User", backref="refresh_tokens")
+
+Index("ix_refresh_tokens_user_revoked", RefreshToken.user_id, RefreshToken.revoked_at)
 
 
 class Language(Base):
@@ -72,6 +94,11 @@ class Deck(Base):
     is_public = Column(Boolean, default=False, nullable=False)
     status = Column(Enum(DeckStatus), default=DeckStatus.DRAFT, nullable=False)
     shared_code = Column(String, nullable=True, unique=True)  # generate on publish or on "create share link"
+
+    # deck type
+    # "user"    - normal user deck
+    # "library" - admin-created, read-only for normal users; users import cards into their own decks
+    deck_type = Column(String, default="user", nullable=False, index=True)
 
     # language pair
     source_language_id = Column(Integer, ForeignKey("languages.id"), nullable=False)

@@ -101,6 +101,94 @@ def require_deck_access(db: Session, user_id: int, deck_id: int) -> models.DeckA
     return row
 
 
+def count_cards_in_deck(db: Session, deck_id: int) -> int:
+    return db.query(models.Card).filter(models.Card.deck_id == deck_id).count()
+
+
+# ----------------- Library (admin-created decks) -----------------
+
+def list_library_decks(
+    db: Session,
+    *,
+    source_language_id: int | None = None,
+    target_language_id: int | None = None,
+):
+    q = db.query(models.Deck).filter(models.Deck.deck_type == "library").order_by(models.Deck.id.desc())
+    if source_language_id is not None:
+        q = q.filter(models.Deck.source_language_id == source_language_id)
+    if target_language_id is not None:
+        q = q.filter(models.Deck.target_language_id == target_language_id)
+    return q.all()
+
+
+def list_library_deck_cards(db: Session, deck_id: int, limit: int, offset: int):
+    deck = (
+        db.query(models.Deck)
+        .filter(models.Deck.id == deck_id, models.Deck.deck_type == "library")
+        .first()
+    )
+    if not deck:
+        return [], 0
+
+    base_q = (
+        db.query(models.Card)
+        .filter(models.Card.deck_id == deck_id)
+        .order_by(models.Card.id.asc())
+    )
+    total = base_q.count()
+    items = base_q.offset(offset).limit(limit).all()
+    return items, total
+
+
+def import_library_card_to_user_deck(
+    db: Session,
+    *,
+    user_id: int,
+    library_card_id: int,
+    target_deck_id: int,
+):
+    """Copy ONE card from a library deck into a user's deck.
+
+    - Library card must belong to a deck with deck_type == "library"
+    - User must have OWNER/EDITOR access to target_deck
+    - Duplicates are skipped based on (deck_id, front_norm)
+    """
+
+    access = require_deck_access(db, user_id, target_deck_id)
+    if access.role not in (models.DeckRole.OWNER, models.DeckRole.EDITOR):
+        raise PermissionError("No permission to add cards to target deck")
+
+    lib_card = (
+        db.query(models.Card)
+        .join(models.Deck, models.Deck.id == models.Card.deck_id)
+        .filter(models.Card.id == library_card_id, models.Deck.deck_type == "library")
+        .first()
+    )
+    if not lib_card:
+        raise LookupError("Library card not found")
+
+    exists = (
+        db.query(models.Card.id)
+        .filter(models.Card.deck_id == target_deck_id, models.Card.front_norm == lib_card.front_norm)
+        .first()
+    )
+    if exists:
+        return {"imported": False, "skipped": True, "reason": "duplicate", "card": None}
+
+    new_card = models.Card(
+        deck_id=target_deck_id,
+        front=lib_card.front,
+        front_norm=lib_card.front_norm,
+        back=lib_card.back,
+        example_sentence=lib_card.example_sentence,
+    )
+    db.add(new_card)
+    db.commit()
+    db.refresh(new_card)
+
+    return {"imported": True, "skipped": False, "reason": None, "card": new_card}
+
+
 # ----------------- Decks -----------------
 
 def create_deck(db: Session, name: str, owner_id: int, source_language_id: int, target_language_id: int) -> models.Deck:

@@ -10,6 +10,8 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./data/test_flashcards.db")
 os.environ.setdefault("SECRET_KEY", "test-secret")
 os.environ.setdefault("ALGORITHM", "HS256")
 os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
+os.environ.setdefault("REFRESH_SECRET_KEY", "test-refresh-secret")
+os.environ.setdefault("REFRESH_TOKEN_EXPIRE_DAYS", "30")
 
 
 
@@ -30,27 +32,27 @@ def auth_headers(token: str) -> dict:
 
 
 def register(client: TestClient, username: str, password: str = "pass1234") -> str:
-    r = client.post("/auth/register", json={"username": username, "password": password})
+    r = client.post("/api/v1/auth/register", json={"username": username, "password": password})
     assert r.status_code == 201, r.text
     return r.json()["access_token"]
 
 
-def login(client: TestClient, username: str, password: str = "pass1234") -> str:
-    # OAuth2PasswordRequestForm => form fields
-    r = client.post(
-        "/auth/login",
-        data={"username": username, "password": password},
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
+def login(client, username: str, password: str = "1234") -> str:
+    r = client.post("/api/v1/auth/login", data={"username": username, "password": password})
     assert r.status_code == 200, r.text
     return r.json()["access_token"]
 
 
 def create_user_and_token(client: TestClient, username: str, password: str = "pass1234") -> tuple[dict, str]:
     token = register(client, username, password)
-    me = client.get("/users/me", headers=auth_headers(token))
+    me = client.get("/api/v1/users/me", headers=auth_headers(token))
     assert me.status_code == 200, me.text
     return me.json(), token
+    
+def login_user_tokens(client, username: str, password: str = "1234") -> dict:
+    r = client.post("/api/v1/auth/login", data={"username": username, "password": password})
+    assert r.status_code == 200, r.text
+    return r.json()
 
 
 @pytest.fixture(autouse=True)
@@ -99,7 +101,7 @@ def client(db_session):
 
 def admin_create_language(client: TestClient, admin_token: str, name: str, code: str) -> int:
     r = client.post(
-        "/admin/languages",
+        "/api/v1/admin/languages",
         json={"name": name, "code": code},
         headers=auth_headers(admin_token),
     )
@@ -109,7 +111,7 @@ def admin_create_language(client: TestClient, admin_token: str, name: str, code:
 
 def create_deck(client: TestClient, token: str, name: str, src_id: int, tgt_id: int) -> int:
     r = client.post(
-        "/decks",
+        "/api/v1/decks",
         json={"name": name, "source_language_id": src_id, "target_language_id": tgt_id},
         headers=auth_headers(token),
     )
@@ -119,7 +121,7 @@ def create_deck(client: TestClient, token: str, name: str, src_id: int, tgt_id: 
 
 def add_card(client: TestClient, token: str, deck_id: int, front: str, back: str, example_sentence: str | None = None) -> dict:
     r = client.post(
-        f"/decks/{deck_id}/cards",
+        f"/api/v1/decks/{deck_id}/cards",
         json={"front": front, "back": back, "example_sentence": example_sentence},
         headers=auth_headers(token),
     )
