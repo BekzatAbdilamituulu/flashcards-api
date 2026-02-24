@@ -30,4 +30,11 @@ def test_register_duplicate_username(client):
     assert r.status_code == 400
     assert "exists" in r.json()["detail"].lower()
 
+def test_login_json(client):
+    client.post("/api/v1/auth/register", json={"username": "u1", "password": "12345678"})
 
+    r = client.post("/api/v1/auth/login-json", json={"username": "u1", "password": "12345678"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "access_token" in body
+    assert "refresh_token" in body
