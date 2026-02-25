@@ -208,10 +208,21 @@ class StudyAnswerIn(BaseModel):
     learned: bool
 
 
+class StudyQueueItemOut(BaseModel):
+    type: str  # "review" | "new"
+    card: CardOut
+
+
 class StudyBatchOut(BaseModel):
     deck_id: int
     count: int
     cards: List[CardOut]
+
+    # Android-friendly queue with type per card
+    items: Optional[List[StudyQueueItemOut]] = None
+
+    # Optional: include current quotas/counters like /study/status
+    meta: Optional["StudyStatusOut"] = None
 
 
 class StudyStatusOut(BaseModel):

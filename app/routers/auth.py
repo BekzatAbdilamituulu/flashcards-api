@@ -41,32 +41,6 @@ def register(payload: schemas.RegisterIn, db: Session = Depends(get_db)):
 
     return schemas.TokenOut(access_token=access, refresh_token=refresh)
 
-@router.post("/login", response_model=schemas.TokenOut)
-def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db),
-):
-    user = crud.get_user_by_username(db, username=form_data.username)
-    if not user:
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
-
-    if not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
-
-    access = create_access_token(subject=user.username)
-    refresh, jti, exp = create_refresh_token(subject=user.username)
-
-    db.add(
-        RefreshToken(
-            user_id=user.id,
-            jti=jti,
-            token_hash=hash_token(refresh),
-            expires_at=exp,
-        )
-    )
-    db.commit()
-
-    return schemas.TokenOut(access_token=access, refresh_token=refresh)
 
 @router.post("/login-json", response_model=schemas.TokenOut)
 def login_json(payload: schemas.LoginIn, db: Session = Depends(get_db)):

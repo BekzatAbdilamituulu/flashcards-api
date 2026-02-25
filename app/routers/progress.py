@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -21,7 +21,7 @@ def daily_progress_range(
     db: Session = Depends(get_db),
 ):
     if from_date > to_date:
-        raise ValueError("from_date must be <= to_date")
+        raise HTTPException(status_code=400, detail="from_date must be <= to_date")
 
     items = crud.get_daily_progress_filled(db, current_user.id, from_date, to_date)
 
@@ -142,3 +142,29 @@ def progress_summary(
         "total_learning": status_counts["learning"],
         "total_new": status_counts["new"],
     }
+
+@router.delete("/me/progress")
+def reset_my_progress(
+    deck_id: int,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Verify access (viewer is enough to reset own progress)
+    try:
+        crud.require_deck_access(db, current_user.id, deck_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Deck not found or no access")
+
+    card_ids_subq = db.query(models.Card.id).filter(models.Card.deck_id == deck_id).subquery()
+
+    deleted = (
+        db.query(models.UserCardProgress)
+        .filter(
+            models.UserCardProgress.user_id == current_user.id,
+            models.UserCardProgress.card_id.in_(card_ids_subq),
+        )
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+
+    return {"deck_id": deck_id, "deleted": deleted}

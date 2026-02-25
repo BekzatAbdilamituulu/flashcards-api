@@ -49,14 +49,14 @@ def test_study_next_and_status_and_review_flow(client):
     c2 = add_card(client, token, deck_id, "bye", "пока")
 
     # status before studying
-    r = client.get("/api/v1/study/status", params={"deck_id": deck_id}, headers=auth_headers(token))
+    r = client.get(f"/api/v1/study/decks/{deck_id}/status", headers=auth_headers(token))
     assert r.status_code == 200, r.text
     status1 = r.json()
     assert status1["deck_id"] == deck_id
     assert status1["new_available_count"] >= 2
 
     # next batch
-    r = client.get("/api/v1/study/next", params={"deck_id": deck_id, "limit": 2, "new_ratio": 1.0}, headers=auth_headers(token))
+    r = client.get(f"/api/v1/study/decks/{deck_id}/next", params={"limit": 2, "new_ratio": 1.0}, headers=auth_headers(token))
     assert r.status_code == 200, r.text
     batch = r.json()
     assert batch["deck_id"] == deck_id
@@ -75,7 +75,7 @@ def test_study_next_and_status_and_review_flow(client):
     assert r.status_code == 200, r.text
 
     # status after studying: reviewed_today/new_introduced_today change
-    r = client.get("/api/v1/study/status", params={"deck_id": deck_id}, headers=auth_headers(token))
+    r = client.get(f"/api/v1/study/decks/{deck_id}/status", headers=auth_headers(token))
     assert r.status_code == 200, r.text
     status2 = r.json()
     assert status2["reviewed_today"] >= 0

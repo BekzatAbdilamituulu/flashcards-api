@@ -5,12 +5,9 @@ def test_register_and_login(client):
     token = register(client, "u1", "pass1234")
     assert isinstance(token, str) and token
 
-    token2 = login(client, "u1", "pass1234")
-    assert isinstance(token2, str) and token2
-
 def test_refresh_rotates_tokens(client):
     client.post("/api/v1/auth/register", json={"username": "u_refresh", "password": "12345678"})
-    login = client.post("/api/v1/auth/login", data={"username": "u_refresh", "password": "12345678"})
+    login = client.post("/api/v1/auth/login-json", json={"username": "u_refresh", "password": "12345678"})
     assert login.status_code == 200, login.text
     tokens = login.json()
 
