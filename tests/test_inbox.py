@@ -2,6 +2,7 @@ from tests.conftest import (
     auth_headers,
     create_user_and_token,
     admin_create_language,
+    set_default_languages,
 )
 
 
@@ -11,6 +12,9 @@ def test_inbox_quick_add_creates_inbox_deck_and_card(client):
 
     en_id = admin_create_language(client, admin_token, "English", "en")
     ru_id = admin_create_language(client, admin_token, "Russian", "ru")
+
+    # Ensure main deck/access exists for this pair
+    set_default_languages(client, token, en_id, ru_id)
 
     r = client.post(
         "/api/v1/inbox/word",
@@ -36,6 +40,8 @@ def test_inbox_bulk_import_dry_run_and_dedupe(client):
 
     en_id = admin_create_language(client, admin_token, "English", "en")
     ru_id = admin_create_language(client, admin_token, "Russian", "ru")
+
+    set_default_languages(client, token, en_id, ru_id)
 
     text = """
 # comment
@@ -87,6 +93,9 @@ def test_inbox_is_per_language_pair(client):
     ru_id = admin_create_language(client, admin_token, "Russian", "ru")
     ky_id = admin_create_language(client, admin_token, "Kyrgyz", "ky")
 
+    # Pre-create main decks/access for each pair (SQLite + flush behavior)
+    set_default_languages(client, token, en_id, ru_id)
+
     r1 = client.post(
         "/api/v1/inbox/word",
         json={
@@ -99,6 +108,8 @@ def test_inbox_is_per_language_pair(client):
     )
     assert r1.status_code == 201, r1.text
     deck1 = r1.json()["deck_id"]
+
+    set_default_languages(client, token, en_id, ky_id)
 
     r2 = client.post(
         "/api/v1/inbox/word",

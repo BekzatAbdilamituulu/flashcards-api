@@ -62,40 +62,34 @@ def create_learning_pair(db: Session, user_id: int, source_language_id: int, tar
 
 def get_or_create_main_deck_for_pair(
     db: Session,
-    user: models.User,
-    *,
+    user,
     source_language_id: int,
     target_language_id: int,
 ) -> models.Deck:
+
     deck = (
         db.query(models.Deck)
         .filter(
             models.Deck.owner_id == user.id,
-            models.Deck.deck_type == "user",
+            models.Deck.deck_type == "main",
             models.Deck.source_language_id == source_language_id,
             models.Deck.target_language_id == target_language_id,
         )
         .first()
     )
+
     if deck:
         return deck
 
-    source_lang = db.get(models.Language, source_language_id)
-    target_lang = db.get(models.Language, target_language_id)
-
-    src_code = (source_lang.code or source_lang.name) if source_lang else str(source_language_id)
-    tgt_code = (target_lang.code or target_lang.name) if target_lang else str(target_language_id)
-    deck_name = f"{str(src_code).upper()} → {str(tgt_code).upper()}"
-
     deck = models.Deck(
-        name=deck_name,
+        name="Main Deck",
         owner_id=user.id,
+        deck_type="main",
         source_language_id=source_language_id,
         target_language_id=target_language_id,
-        deck_type="user",
     )
     db.add(deck)
-    db.flush()  # deck.id exists
+    db.flush()
 
     access = models.DeckAccess(
         deck_id=deck.id,
@@ -103,7 +97,6 @@ def get_or_create_main_deck_for_pair(
         role=models.DeckRole.OWNER,
     )
     db.add(access)
-    db.flush() 
 
     return deck
 
@@ -309,17 +302,25 @@ def import_library_card_to_user_deck(
 
 # ----------------- Decks -----------------
 
-def create_deck(db: Session, name: str, owner_id: int, source_language_id: int, target_language_id: int) -> models.Deck:
+def create_deck(
+    db: Session,
+    name: str,
+    owner_id: int,
+    source_language_id: int,
+    target_language_id: int,
+    *,
+    deck_type: str = "users",
+) -> models.Deck:
     deck = models.Deck(
         name=name,
         owner_id=owner_id,
         source_language_id=source_language_id,
         target_language_id=target_language_id,
+        deck_type=deck_type,
     )
     db.add(deck)
     db.flush()  # get deck.id
 
-    # creator access
     access = models.DeckAccess(deck_id=deck.id, user_id=owner_id, role=models.DeckRole.OWNER)
     db.add(access)
 
@@ -327,82 +328,43 @@ def create_deck(db: Session, name: str, owner_id: int, source_language_id: int, 
     db.refresh(deck)
     return deck
 
-def _gen_share_code() -> str:
-    # short, URL-safe
-    return secrets.token_urlsafe(8)
 
-def update_deck(db: Session, deck_id: int, user_id: int, *, name: str | None = None, is_public: bool | None = None):
-    access = require_deck_access(db, user_id, deck_id)
+def update_deck(
+    db: Session,
+    *,
+    deck_id: int,
+    user_id: int,
+    name: str | None = None,
+    is_public: bool | None = None,
+) -> models.Deck:
+    access = (
+        db.query(models.DeckAccess)
+        .filter(models.DeckAccess.deck_id == deck_id, models.DeckAccess.user_id == user_id)
+        .first()
+    )
+    if not access or access.role != models.DeckRole.OWNER:
+        raise PermissionError("Only owner can update deck")
+
+    deck = db.query(models.Deck).filter(models.Deck.id == deck_id).first()
+    if not deck:
+        raise LookupError("Deck not found")
+
+    # 🔒 restriction
+    if deck.deck_type != "users":
+        raise PermissionError("Only 'users' decks can be updated")
 
     if name is not None:
-        if access.role not in (models.DeckRole.OWNER, models.DeckRole.EDITOR):
-            raise PermissionError("No permission to edit deck")
-        clean = (name or "").strip()
-        if not clean:
-            raise ValueError("Deck name is required")
-        access.deck.name = clean
+        name = name.strip()
+        if not name:
+            raise ValueError("Name is required")
+        deck.name = name
 
     if is_public is not None:
-        if access.role != models.DeckRole.OWNER:
-            raise PermissionError("Only owner can change visibility")
-        # recommended rule: cannot make draft public
-        if access.deck.status == models.DeckStatus.DRAFT and bool(is_public) is True:
-            raise ValueError("Publish deck before making it public")
-        access.deck.is_public = bool(is_public)
+        deck.is_public = is_public
 
     db.commit()
-    db.refresh(access.deck)
-    return access.deck
-
-
-def publish_deck(db: Session, deck_id: int, user_id: int, *, make_public: bool = False):
-    access = require_deck_access(db, user_id, deck_id)
-    if access.role != models.DeckRole.OWNER:
-        raise PermissionError("Only owner can publish")
-
-    access.deck.status = models.DeckStatus.PUBLISHED
-    access.deck.is_public = bool(make_public)
-
-    # ensure shared_code exists (generate on publish)
-    if not access.deck.shared_code:
-        for _ in range(5):
-            access.deck.shared_code = _gen_share_code()
-            try:
-                db.commit()
-                db.refresh(access.deck)
-                return access.deck
-            except IntegrityError:
-                db.rollback()
-        raise RuntimeError("Failed to generate unique share code")
-
-    db.commit()
-    db.refresh(access.deck)
-    return access.deck
-
-
-def unpublish_deck(db: Session, deck_id: int, user_id: int):
-    access = require_deck_access(db, user_id, deck_id)
-    if access.role != models.DeckRole.OWNER:
-        raise PermissionError("Only owner can unpublish")
-
-    access.deck.status = models.DeckStatus.DRAFT
-    access.deck.is_public = False
-    access.deck.shared_code = None  # revoke old invite links
-
-    db.commit()
-    db.refresh(access.deck)
-    return access.deck
-
-
-def unshare_deck(db: Session, deck_id: int, user_id: int):
-    access = require_deck_access(db, user_id, deck_id)
-    if access.role != models.DeckRole.OWNER:
-        raise PermissionError("Only owner can unshare")
-
-    access.deck.shared_code = None
-    db.commit()
-    db.refresh(access.deck)
-    return access.deck
+    db.refresh(deck)
+    return deck
 
 def delete_deck(db: Session, deck_id: int, user_id: int) -> bool:
     access = (
@@ -416,6 +378,10 @@ def delete_deck(db: Session, deck_id: int, user_id: int) -> bool:
     deck = db.query(models.Deck).filter(models.Deck.id == deck_id).first()
     if not deck:
         return False
+
+    # Only users decks are deletable by the owner
+    if deck.deck_type != "users":
+        raise PermissionError("Only 'users' decks can be deleted")
 
     db.delete(deck)
     db.commit()
@@ -450,52 +416,6 @@ def get_user_decks(
 
     return items, total
 
-
-def set_deck_share_code(db: Session, deck_id: int, user_id: int, shared_code: str) -> Optional[models.Deck]:
-    access = (
-        db.query(models.DeckAccess)
-        .filter(models.DeckAccess.user_id == user_id, models.DeckAccess.deck_id == deck_id)
-        .first()
-    )
-    if not access or access.role != models.DeckRole.OWNER:
-        return None
-
-    deck = db.query(models.Deck).filter(models.Deck.id == deck_id).first()
-    if not deck:
-        return None
-
-    deck.shared_code = shared_code
-    deck.status = models.DeckStatus.PUBLISHED
-    deck.is_public = True
-
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise
-    db.refresh(deck)
-    return deck
-
-
-def join_deck_by_code(db: Session, user_id: int, shared_code: str) -> Optional[models.DeckAccess]:
-    deck = db.query(models.Deck).filter(models.Deck.shared_code == shared_code).first()
-    if not deck:
-        return None
-
-    existing = (
-        db.query(models.DeckAccess)
-        .filter(models.DeckAccess.user_id == user_id, models.DeckAccess.deck_id == deck.id)
-        .first()
-    )
-    if existing:
-        return existing
-
-    access = models.DeckAccess(deck_id=deck.id, user_id=user_id, role=models.DeckRole.VIEWER)
-    db.add(access)
-    db.commit()
-    db.refresh(access)
-    return access
-
 def card_exists_in_deck(db: Session, deck_id: int, front: str) -> bool:
     fn = normalize_front(front)
     return db.query(models.Card.id).filter(models.Card.deck_id == deck_id, models.Card.front_norm == fn).first() is not None
@@ -511,6 +431,8 @@ def create_card(db: Session, deck_id: int, user_id: int, front: str, back: str, 
     access = require_deck_access(db, user_id, deck_id)
     if access.role not in (models.DeckRole.OWNER, models.DeckRole.EDITOR):
         raise ValueError("No permission to edit deck")
+    if access.deck.deck_type == "library":
+        raise PermissionError("Library decks are read-only")
 
     front_clean = (front or "").strip()
     if not front_clean:
@@ -559,7 +481,8 @@ def update_card(
     access = require_deck_access(db, user_id, deck_id)
     if access.role not in (models.DeckRole.OWNER, models.DeckRole.EDITOR):
         raise PermissionError("No permission to edit deck")
-
+    if access.deck.deck_type == "library":
+        raise PermissionError("Library decks are read-only")
     card = (
         db.query(models.Card)
         .filter(models.Card.id == card_id, models.Card.deck_id == deck_id)
@@ -597,6 +520,8 @@ def delete_card(db: Session, deck_id: int, card_id: int, user_id: int) -> bool:
     access = require_deck_access(db, user_id, deck_id)
     if access.role not in (models.DeckRole.OWNER, models.DeckRole.EDITOR):
         raise PermissionError("No permission to edit deck")
+    if access.deck.deck_type == "library":
+        raise PermissionError("Library decks are read-only")
 
     card = (
         db.query(models.Card)
@@ -768,6 +693,7 @@ def count_cards_created_on_day(db: Session, user_id: int, d: date, deck_id: int 
 
     q = (
         db.query(models.Card)
+        .join(models.Deck, models.Deck.id == models.Card.deck_id)  # join Deck for deck_type
         .join(models.DeckAccess, models.DeckAccess.deck_id == models.Card.deck_id)
         .filter(
             models.DeckAccess.user_id == user_id,
@@ -775,8 +701,14 @@ def count_cards_created_on_day(db: Session, user_id: int, d: date, deck_id: int 
             models.Card.created_at < end,
         )
     )
+
     if deck_id is not None:
-        q = q.filter(models.Card.deck_id == deck_id)
+        q = q.filter(models.Card.deck_id == deck_id, models.Deck.deck_type == "main")
+    else:
+        # optional: if you ever call without deck_id, you might still want only main
+        # q = q.filter(models.Deck.deck_type == "main")
+        pass
+
     return q.count()
 
 

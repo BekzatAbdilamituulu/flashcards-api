@@ -116,6 +116,7 @@ class DeckBase(BaseModel):
     name: str
     source_language_id: int
     target_language_id: int
+    deck_type: str = "users"  # "main" | "users" | "library"
 
 
 class DeckCreate(DeckBase):
@@ -124,9 +125,6 @@ class DeckCreate(DeckBase):
 
 class DeckOut(DeckBase):
     id: int
-    is_public: bool = False
-    status: str = "draft"
-    shared_code: Optional[str] = None
     model_config = ConfigDict(from_attributes=True, use_enum_values=True)
 
 class DeckUpdate(BaseModel):
@@ -136,18 +134,6 @@ class DeckUpdate(BaseModel):
 class DeckStatus(str, Enum):
     DRAFT = "DRAFT"
     PUBLISHED = "PUBLISHED"
-
-class UnshareOut(BaseModel):
-    deck_id: int
-    shared_code: Optional[str] = None
-    is_public: bool
-
-class DeckPublishOut(BaseModel):
-    deck_id: int
-    status: str
-    is_public: bool
-    shared_code: Optional[str] = None
-
 
 # ----------------- LIBRARY -----------------
 

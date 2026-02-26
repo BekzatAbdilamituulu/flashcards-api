@@ -22,23 +22,29 @@ def study_card_me(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # Determine whether this is a review vs first-time
+    # 1) Load card + deck + check access + ensure main deck
+    row = (
+        db.query(models.Card, models.Deck)
+        .join(models.Deck, models.Card.deck_id == models.Deck.id)
+        .join(models.DeckAccess, models.DeckAccess.deck_id == models.Deck.id)
+        .filter(models.Card.id == card_id, models.DeckAccess.user_id == current_user.id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Card not found or no access")
+
+    card, deck = row
+    if deck.deck_type != "main":
+        raise HTTPException(status_code=400, detail="You can only study from main deck")
+
+    # 2) Determine review vs new BEFORE applying review
     rec = crud.get_user_card_progress(db, current_user.id, card_id)
     was_review = (rec is not None) and ((rec.times_seen or 0) > 0)
 
-    # Apply review (updates card progress)
+    # 3) Apply review (updates progress)
     result = _apply_review(db, current_user.id, card_id, payload.learned)
 
-    # Resolve learning_pair from the card's deck (best: consistent with stats)
-    deck = (
-        db.query(models.Deck)
-        .join(models.Card, models.Card.deck_id == models.Deck.id)
-        .filter(models.Card.id == card_id)
-        .first()
-    )
-    if not deck:
-        raise HTTPException(status_code=404, detail="Card not found")
-
+    # 4) Resolve learning pair from deck languages
     pair = (
         db.query(models.UserLearningPair)
         .filter(
@@ -49,7 +55,6 @@ def study_card_me(
         .first()
     )
     if not pair:
-        # If user studied a card from a pair not yet configured, create it.
         pair = models.UserLearningPair(
             user_id=current_user.id,
             source_language_id=deck.source_language_id,
@@ -60,18 +65,10 @@ def study_card_me(
         db.flush()
 
     day = bishkek_today()
-
-    dp = crud.get_or_create_daily_progress(
-        db,
-        user_id=current_user.id,
-        learning_pair_id=pair.id,
-        day=day,
-    )
+    dp = crud.get_or_create_daily_progress(db, user_id=current_user.id, learning_pair_id=pair.id, day=day)
     dp.cards_done += 1
-    if was_review:
-        dp.reviews_done += 1
-    else:
-        dp.new_done += 1
+    dp.reviews_done += 1 if was_review else 0
+    dp.new_done += 0 if was_review else 1
 
     db.commit()
     return result
@@ -86,6 +83,13 @@ def next_study_for_deck(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    deck = crud.get_deck(db, deck_id, current_user.id)
+    if not deck:
+        raise HTTPException(status_code=404, detail="Deck not found or no access")
+
+    if deck.deck_type != "main":
+        raise HTTPException(status_code=400, detail="You can only study from main deck")
+
     return build_next_batch(
         db=db,
         user_id=current_user.id,
@@ -105,6 +109,12 @@ def study_status_for_deck(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+
+    deck = crud.get_deck(db, deck_id, current_user.id)
+    if not deck:
+        raise HTTPException(status_code=404, detail="Deck not found or no access")
+    if deck.deck_type != "main":
+        raise HTTPException(status_code=400, detail="You can only study from main deck")
     return build_study_status(
         db=db,
         user_id=current_user.id,

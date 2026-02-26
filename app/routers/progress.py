@@ -58,6 +58,14 @@ def today_added(
 ):
     d = bishkek_today()
 
+    # If deck_id is provided, validate access + enforce main deck
+    if deck_id is not None:
+        deck = crud.get_deck(db, deck_id, current_user.id)
+        if not deck:
+            raise HTTPException(status_code=404, detail="Deck not found or no access")
+        if deck.deck_type != "main":
+            raise HTTPException(status_code=400, detail="Only main deck is allowed for progress")
+
     # If deck_id is not provided, resolve it from pair
     if deck_id is None:
         if pair_id is None:

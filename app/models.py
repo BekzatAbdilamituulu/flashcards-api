@@ -103,6 +103,10 @@ class DeckStatus(enum.Enum):
     PUBLISHED = "published"
     HIDDEN = "hidden"
 
+class DeckType(enum.Enum):
+    MAIN = "main"
+    USERS = "users"
+    LIBRARY = "library"
 
 class Deck(Base):
     __tablename__ = "decks"
@@ -120,9 +124,10 @@ class Deck(Base):
     shared_code = Column(String, nullable=True, unique=True)  # generate on publish or on "create share link"
 
     # deck type
-    # "user"    - normal user deck
+    #'main' main deck user can study
+    # "user"    - user deck only storage
     # "library" - admin-created, read-only for normal users; users import cards into their own decks
-    deck_type = Column(String, default="user", nullable=False, index=True)
+    deck_type = Column(String, default=DeckType.MAIN, nullable=False, index=True)
 
     # language pair
     source_language_id = Column(Integer, ForeignKey("languages.id"), nullable=False)
@@ -136,17 +141,6 @@ class Deck(Base):
 
     # permissions
     user_permissions = relationship("DeckAccess", back_populates="deck", cascade="all, delete-orphan")
-
-    __table_args__ = (
-        UniqueConstraint(
-            "owner_id",
-            "deck_type",
-            "source_language_id",
-            "target_language_id",
-            name="uq_inbox_per_pair",
-        ),
-    )
-
 
 class DeckRole(enum.Enum):
     OWNER = "owner"

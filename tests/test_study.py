@@ -4,6 +4,7 @@ from tests.conftest import (
     admin_create_language,
     create_deck,
     add_card,
+    get_main_deck_id,
 )
 
 def test_stage1_wrong_stays_stage1(client, token_headers, make_deck_with_cards):
@@ -43,7 +44,8 @@ def test_study_next_and_status_and_review_flow(client):
 
     en_id = admin_create_language(client, admin_token, "English", "en")
     ru_id = admin_create_language(client, admin_token, "Russian", "ru")
-    deck_id = create_deck(client, token, "D", en_id, ru_id)
+    create_deck(client, token, "D", en_id, ru_id)
+    deck_id = get_main_deck_id(client, token, en_id, ru_id)
 
     c1 = add_card(client, token, deck_id, "hello", "привет")
     c2 = add_card(client, token, deck_id, "bye", "пока")
@@ -88,7 +90,8 @@ def test_study_requires_input(client):
 
     en_id = admin_create_language(client, admin_token, "English", "en")
     ru_id = admin_create_language(client, admin_token, "Russian", "ru")
-    deck_id = create_deck(client, token, "D", en_id, ru_id)
+    create_deck(client, token, "D", en_id, ru_id)
+    deck_id = get_main_deck_id(client, token, en_id, ru_id)
     c1 = add_card(client, token, deck_id, "hello", "привет")
 
     r = client.post(f"/api/v1/study/{c1['id']}", headers=auth_headers(token))

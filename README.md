@@ -1,6 +1,18 @@
 # Flashcards Learning API
 
-Built a full-featured spaced repetition backend using FastAPI with authentication, SRS algorithm implementation, deck management, study sessions, and performance analytics.
+This app is designed to help students, solo learners, and readers learn new words easily and effectively.When you are reading a book or an article and encounter an unfamiliar word, you can quickly add it to the app. From that moment, the system takes care of the learning process for you — no need to think about how often to repeat it or when to review it.
+
+The app helps you:
+- Add new words instantly while reading
+- Review words using a smart repetition system
+- Track your daily progress
+- Build learning streaks
+- See how many words you’ve learned per day or per week
+
+For example, you can proudly say: “I learned 100 new words this week.”
+
+The goal is simple:
+Make vocabulary learning effortless, motivating, and consistent.
 
 ------------------------------------------------------------------------
 
@@ -12,6 +24,7 @@ Built a full-featured spaced repetition backend using FastAPI with authenticatio
 - SM-2 Spaced Repetition Algorithm
 - Smart Study Queue (/study/next)
 - Due / New Card Prioritization
+- Multi-deck architecture
 - Alembic Migrations
 - Dockerized Setup
 - Pytest Test Suite
@@ -49,27 +62,66 @@ Each user has independent scheduling per card:
 
 ------------------------------------------------------------------------
 ## Architecture
+Deck Types
+The system uses a unified Deck table with 3 types
 
-Client (Web / Mobile)
-        ↓
-     FastAPI
-        ↓
-     Routers
-        ↓
-     Services
-        ↓
-       CRUD
-        ↓
-    SQLAlchemy ORM
-        ↓
-     Database
+| Type      | Purpose                                                               |
+| --------- | --------------------------------------------------------------------- |
+| `main`    | Auto-created per language pair. **Only deck allowed for study.**      |
+| `users`   | User-created collection decks. Can store cards but cannot be studied. |
+| `library` | Admin-created public decks (read-only for users).                     |
 
-![Architecture](docs/architecture.svg)
+
+Learning Model
+
+User → Learning Pair → Main Deck → Cards → Progress
+
+Each user:
+
+- Has one or more learning pairs (e.g. EN → RU)
+- Each pair automatically has exactly one main deck
+- Study and progress tracking only operate on the main deck
+- Users may create additional users decks for organization
+
+Study Rules
+
+- Study endpoints reject any deck where deck_type != "main"
+- Cards in users decks cannot be studied
+- Daily progress is calculated only for the main deck
+- Study updates:
+- card progress
+- stage
+- due_at
+- daily counters (Asia/Bishkek timezone)
+
+Progress System
+
+- Daily progress includes:
+- cards_done
+- reviews_done
+- new_done
+- streak tracking
+- Timezone: Asia/Bishkek (+06)
+
+Security Rules
+
+- Only users decks can be updated or deleted by user
+- main decks cannot be deleted
+- library decks are read-only
+- Study endpoints enforce deck_type == "main"
 
 ------------------------------------------------------------------------
-## Database ER Diagram
+## Database Design (Current)
 
-![ER Diagram](docs/er.svg)
+Key entities:
+- User
+- Language
+- UserLearningPair
+- Deck (main | users | library)
+- Card
+- UserCardProgress
+- DailyProgress
+- DeckAccess (role-based)
 
 ------------------------------------------------------------------------
 
@@ -204,6 +256,17 @@ Overdue items are prioritized before new content.
 - Deck all cards in deck. Deck belongs to user(can be published, draft hidden), user can share with deck with share_code. Edit deck only (owner, editor). 
 
 ### 2026-02-23 — Learning stages
+
+### 2026-02-26 — Major Architecture Refactor
+ 
+- Introduced main | users | library deck types
+- Study restricted to main decks only
+- Users decks converted to storage/collection decks
+- Removed share/publish functionality
+- Progress and daily tracking bound to main deck
+- Cleaned study access validation
+- Fixed deck update/delete restrictions
+- Enforced deck_type validation across routers
 
 
 ## Author

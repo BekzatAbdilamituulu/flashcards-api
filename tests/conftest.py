@@ -1,9 +1,10 @@
 import os
+import sys
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-import os
 
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./data/test_flashcards.db")
@@ -13,16 +14,19 @@ os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
 os.environ.setdefault("REFRESH_SECRET_KEY", "test-refresh-secret")
 os.environ.setdefault("REFRESH_TOKEN_EXPIRE_DAYS", "30")
 
-
+# Ensure the repo root (that contains the `app/` package) is on sys.path.
+# Expected layout:
+#   <repo_root>/app/
+#   <repo_root>/tests/
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
 from app.database import Base, get_db
 
 # IMPORTANT: ensure models are imported before create_all
 import app.models  # noqa: F401
-import sys
-import os
 
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from app.main import app
 
 
@@ -53,6 +57,30 @@ def login_user_tokens(client, username: str, password: str = "1234") -> dict:
     r = client.post("/api/v1/auth/login", data={"username": username, "password": password})
     assert r.status_code == 200, r.text
     return r.json()
+
+
+def set_default_languages(client: TestClient, token: str, src_id: int, tgt_id: int) -> None:
+    r = client.put(
+        "/api/v1/users/me/languages",
+        json={"default_source_language_id": src_id, "default_target_language_id": tgt_id},
+        headers=auth_headers(token),
+    )
+    assert r.status_code == 200, r.text
+
+
+def get_main_deck_id(client: TestClient, token: str, src_id: int, tgt_id: int) -> int:
+    # Ensure default pair + main deck exist
+    set_default_languages(client, token, src_id, tgt_id)
+
+    r = client.get("/api/v1/decks", headers=auth_headers(token))
+    assert r.status_code == 200, r.text
+    main_decks = [d for d in r.json().get("items", []) if d.get("deck_type") == "main"]
+    assert main_decks, r.text
+    # If there are multiple mains (multiple pairs), pick matching pair
+    for d in main_decks:
+        if d.get("source_language_id") == src_id and d.get("target_language_id") == tgt_id:
+            return d["id"]
+    return main_decks[0]["id"]
 
 
 @pytest.fixture(autouse=True)
@@ -110,9 +138,17 @@ def admin_create_language(client: TestClient, admin_token: str, name: str, code:
 
 
 def create_deck(client: TestClient, token: str, name: str, src_id: int, tgt_id: int) -> int:
+    # New logic: user must have a default learning pair before creating decks.
+    set_default_languages(client, token, src_id, tgt_id)
+
     r = client.post(
         "/api/v1/decks",
-        json={"name": name, "source_language_id": src_id, "target_language_id": tgt_id},
+        json={
+            "name": name,
+            "source_language_id": src_id,
+            "target_language_id": tgt_id,
+            "deck_type": "users",
+        },
         headers=auth_headers(token),
     )
     assert r.status_code == 201, r.text
@@ -147,8 +183,9 @@ def make_deck_with_cards(client, user_token):
         en_id = admin_create_language(client, admin_token, "English", "en")
         ru_id = admin_create_language(client, admin_token, "Russian", "ru")
 
-        # IMPORTANT: deck created by same user_token
-        deck_id = create_deck(client, user_token, "Deck", en_id, ru_id)
+        # Create a USERS deck (storage), but study tests must use the MAIN deck.
+        create_deck(client, user_token, "Deck", en_id, ru_id)
+        deck_id = get_main_deck_id(client, user_token, en_id, ru_id)
 
         cards = []
         for i in range(n):
