@@ -2,42 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import Optional, Tuple
-import re
+
 
 from ..database import get_db
 from ..deps import get_current_user
 from .. import crud, schemas
+from ..services.inbox_service import resolve_language_pair, _split_line
 
 router = APIRouter(prefix="/inbox", tags=["inbox"])
-
-# Matches: em dash, en dash, minus sign, hyphen variants, colon, semicolon, equals, tab, pipe
-SPLIT_RE = re.compile(r"\s*(?:—|–|−|-|‐|:|;|=|\t|\|)\s*", re.UNICODE)
-
-def _split_line(line: str, fixed_delim: Optional[str]) -> Optional[Tuple[str, str]]:
-    raw = (line or "").strip()
-    if not raw or raw.startswith("#"):
-        return None
-
-    if fixed_delim:
-        if fixed_delim not in raw:
-            return None
-        left, right = raw.split(fixed_delim, 1)
-        front = left.strip()
-        back = right.strip()
-        if not front:
-            return None
-        return front, back
-
-    parts = SPLIT_RE.split(raw, maxsplit=1)
-    if len(parts) == 2:
-        front, back = parts[0].strip(), parts[1].strip()
-        if not front:
-            return None
-        return front, back
-
-    # no delimiter -> front only
-    return raw, ""
-
 
 @router.post("/word", response_model=schemas.InboxWordOut, status_code=status.HTTP_201_CREATED)
 def quick_add_word(
@@ -46,15 +18,21 @@ def quick_add_word(
     user=Depends(get_current_user),
 ):
     try:
-        deck = crud.get_or_create_inbox_deck(
+        src_id, tgt_id = resolve_language_pair(
             db,
             user,
             source_language_id=payload.source_language_id,
             target_language_id=payload.target_language_id,
+            require_pair_exists=False,
+        )
+        deck = crud.get_or_create_main_deck_for_pair(
+            db,
+            user,
+            source_language_id=src_id,
+            target_language_id=tgt_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-
     # allow back to be empty now (user fills later)
     back = payload.back or ""
 
@@ -81,11 +59,18 @@ def bulk_import(
     user=Depends(get_current_user),
 ):
     try:
-        deck = crud.get_or_create_inbox_deck(
+        src_id, tgt_id = resolve_language_pair(
             db,
             user,
             source_language_id=payload.source_language_id,
             target_language_id=payload.target_language_id,
+            require_pair_exists=False,
+        )
+        deck = crud.get_or_create_main_deck_for_pair(
+            db,
+            user,
+            source_language_id=src_id,
+            target_language_id=tgt_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))

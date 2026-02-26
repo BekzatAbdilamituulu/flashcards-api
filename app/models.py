@@ -35,12 +35,36 @@ class User(Base):
     daily_card_target = Column(Integer, default=20, nullable=False)
     daily_new_target = Column(Integer, default=7, nullable=False)
 
-    default_source_language_id = Column(Integer, ForeignKey("languages.id"), nullable=True)
-    default_target_language_id = Column(Integer, ForeignKey("languages.id"), nullable=True)
-
     # relationships
     decks = relationship("Deck", back_populates="owner", cascade="all, delete-orphan")
     shared_decks = relationship("DeckAccess", back_populates="user", cascade="all, delete-orphan")
+
+class UserLearningPair(Base):
+    __tablename__ = "user_learning_pairs"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_language_id = Column(Integer, ForeignKey("languages.id"), nullable=False)
+    target_language_id = Column(Integer, ForeignKey("languages.id"), nullable=False)
+
+    is_default = Column(Boolean, default=False, nullable=False)
+
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+    user = relationship("User", backref="learning_pairs")
+    source_language = relationship("Language", foreign_keys=[source_language_id])
+    target_language = relationship("Language", foreign_keys=[target_language_id])
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "source_language_id",
+            "target_language_id",
+            name="uq_user_learning_pairs_user_src_tgt",
+        ),
+        Index("ix_user_learning_pairs_user_default", "user_id", "is_default"),
+    )
 
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
@@ -113,6 +137,16 @@ class Deck(Base):
     # permissions
     user_permissions = relationship("DeckAccess", back_populates="deck", cascade="all, delete-orphan")
 
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_id",
+            "deck_type",
+            "source_language_id",
+            "target_language_id",
+            name="uq_inbox_per_pair",
+        ),
+    )
+
 
 class DeckRole(enum.Enum):
     OWNER = "owner"
@@ -164,8 +198,6 @@ class UserCardProgress(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     card_id = Column(Integer, ForeignKey("cards.id"), nullable=False, index=True)
-
-    status = Column(String, default="new")  # new | learning | mastered
     times_seen = Column(Integer, default=0)
     times_correct = Column(Integer, default=0)
     last_review = Column(DateTime, nullable=True)
@@ -190,7 +222,16 @@ class DailyProgress(Base):
     __tablename__ = "daily_progress"
 
     id = Column(Integer, primary_key=True)
+
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    learning_pair_id = Column(
+        Integer,
+        ForeignKey("user_learning_pairs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
     date = Column(Date, nullable=False, index=True)
 
     cards_done = Column(Integer, default=0)
@@ -198,5 +239,6 @@ class DailyProgress(Base):
     new_done = Column(Integer, default=0)
 
     __table_args__ = (
-        UniqueConstraint("user_id", "date", name="uq_daily_progress_user_date"),
+        UniqueConstraint("user_id", "learning_pair_id", "date", name="uq_daily_progress_user_pair_date"),
+        Index("ix_daily_progress_user_pair_date", "user_id", "learning_pair_id", "date"),
     )

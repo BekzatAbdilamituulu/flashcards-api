@@ -1,8 +1,8 @@
 """Initial migration
 
-Revision ID: a1df40a8324a
+Revision ID: e5aeb3e49c78
 Revises: 
-Create Date: 2026-02-23 16:09:28.913001
+Create Date: 2026-02-26 17:05:47.852477
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'a1df40a8324a'
+revision: str = 'e5aeb3e49c78'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -36,27 +36,10 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('daily_card_target', sa.Integer(), nullable=False),
     sa.Column('daily_new_target', sa.Integer(), nullable=False),
-    sa.Column('default_source_language_id', sa.Integer(), nullable=True),
-    sa.Column('default_target_language_id', sa.Integer(), nullable=True),
-    sa.ForeignKeyConstraint(['default_source_language_id'], ['languages.id'], ),
-    sa.ForeignKeyConstraint(['default_target_language_id'], ['languages.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_users_id'), 'users', ['id'], unique=False)
     op.create_index(op.f('ix_users_username'), 'users', ['username'], unique=True)
-    op.create_table('daily_progress',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('user_id', sa.Integer(), nullable=False),
-    sa.Column('date', sa.Date(), nullable=False),
-    sa.Column('cards_done', sa.Integer(), nullable=True),
-    sa.Column('reviews_done', sa.Integer(), nullable=True),
-    sa.Column('new_done', sa.Integer(), nullable=True),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('user_id', 'date', name='uq_daily_progress_user_date')
-    )
-    op.create_index(op.f('ix_daily_progress_date'), 'daily_progress', ['date'], unique=False)
-    op.create_index(op.f('ix_daily_progress_user_id'), 'daily_progress', ['user_id'], unique=False)
     op.create_table('decks',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('name', sa.String(), nullable=False),
@@ -71,6 +54,7 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['source_language_id'], ['languages.id'], ),
     sa.ForeignKeyConstraint(['target_language_id'], ['languages.id'], ),
     sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('owner_id', 'deck_type', 'source_language_id', 'target_language_id', name='uq_inbox_per_pair'),
     sa.UniqueConstraint('shared_code')
     )
     op.create_index(op.f('ix_decks_deck_type'), 'decks', ['deck_type'], unique=False)
@@ -91,6 +75,22 @@ def upgrade() -> None:
     op.create_index(op.f('ix_refresh_tokens_token_hash'), 'refresh_tokens', ['token_hash'], unique=False)
     op.create_index(op.f('ix_refresh_tokens_user_id'), 'refresh_tokens', ['user_id'], unique=False)
     op.create_index('ix_refresh_tokens_user_revoked', 'refresh_tokens', ['user_id', 'revoked_at'], unique=False)
+    op.create_table('user_learning_pairs',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('source_language_id', sa.Integer(), nullable=False),
+    sa.Column('target_language_id', sa.Integer(), nullable=False),
+    sa.Column('is_default', sa.Boolean(), nullable=False),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.ForeignKeyConstraint(['source_language_id'], ['languages.id'], ),
+    sa.ForeignKeyConstraint(['target_language_id'], ['languages.id'], ),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('user_id', 'source_language_id', 'target_language_id', name='uq_user_learning_pairs_user_src_tgt')
+    )
+    op.create_index(op.f('ix_user_learning_pairs_id'), 'user_learning_pairs', ['id'], unique=False)
+    op.create_index('ix_user_learning_pairs_user_default', 'user_learning_pairs', ['user_id', 'is_default'], unique=False)
+    op.create_index(op.f('ix_user_learning_pairs_user_id'), 'user_learning_pairs', ['user_id'], unique=False)
     op.create_table('cards',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('front', sa.String(), nullable=False),
@@ -107,6 +107,23 @@ def upgrade() -> None:
     op.create_index(op.f('ix_cards_deck_id'), 'cards', ['deck_id'], unique=False)
     op.create_index(op.f('ix_cards_front_norm'), 'cards', ['front_norm'], unique=False)
     op.create_index(op.f('ix_cards_id'), 'cards', ['id'], unique=False)
+    op.create_table('daily_progress',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('learning_pair_id', sa.Integer(), nullable=False),
+    sa.Column('date', sa.Date(), nullable=False),
+    sa.Column('cards_done', sa.Integer(), nullable=True),
+    sa.Column('reviews_done', sa.Integer(), nullable=True),
+    sa.Column('new_done', sa.Integer(), nullable=True),
+    sa.ForeignKeyConstraint(['learning_pair_id'], ['user_learning_pairs.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('user_id', 'learning_pair_id', 'date', name='uq_daily_progress_user_pair_date')
+    )
+    op.create_index(op.f('ix_daily_progress_date'), 'daily_progress', ['date'], unique=False)
+    op.create_index(op.f('ix_daily_progress_learning_pair_id'), 'daily_progress', ['learning_pair_id'], unique=False)
+    op.create_index(op.f('ix_daily_progress_user_id'), 'daily_progress', ['user_id'], unique=False)
+    op.create_index('ix_daily_progress_user_pair_date', 'daily_progress', ['user_id', 'learning_pair_id', 'date'], unique=False)
     op.create_table('deck_access',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('deck_id', sa.Integer(), nullable=False),
@@ -123,10 +140,10 @@ def upgrade() -> None:
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=False),
     sa.Column('card_id', sa.Integer(), nullable=False),
-    sa.Column('status', sa.String(), nullable=False),
     sa.Column('times_seen', sa.Integer(), nullable=True),
     sa.Column('times_correct', sa.Integer(), nullable=True),
     sa.Column('last_review', sa.DateTime(), nullable=True),
+    sa.Column('status', sa.String(), nullable=False),
     sa.Column('stage', sa.Integer(), nullable=True),
     sa.Column('due_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['card_id'], ['cards.id'], ),
@@ -154,11 +171,20 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_deck_access_user_id'), table_name='deck_access')
     op.drop_index(op.f('ix_deck_access_deck_id'), table_name='deck_access')
     op.drop_table('deck_access')
+    op.drop_index('ix_daily_progress_user_pair_date', table_name='daily_progress')
+    op.drop_index(op.f('ix_daily_progress_user_id'), table_name='daily_progress')
+    op.drop_index(op.f('ix_daily_progress_learning_pair_id'), table_name='daily_progress')
+    op.drop_index(op.f('ix_daily_progress_date'), table_name='daily_progress')
+    op.drop_table('daily_progress')
     op.drop_index(op.f('ix_cards_id'), table_name='cards')
     op.drop_index(op.f('ix_cards_front_norm'), table_name='cards')
     op.drop_index(op.f('ix_cards_deck_id'), table_name='cards')
     op.drop_index(op.f('ix_cards_created_at'), table_name='cards')
     op.drop_table('cards')
+    op.drop_index(op.f('ix_user_learning_pairs_user_id'), table_name='user_learning_pairs')
+    op.drop_index('ix_user_learning_pairs_user_default', table_name='user_learning_pairs')
+    op.drop_index(op.f('ix_user_learning_pairs_id'), table_name='user_learning_pairs')
+    op.drop_table('user_learning_pairs')
     op.drop_index('ix_refresh_tokens_user_revoked', table_name='refresh_tokens')
     op.drop_index(op.f('ix_refresh_tokens_user_id'), table_name='refresh_tokens')
     op.drop_index(op.f('ix_refresh_tokens_token_hash'), table_name='refresh_tokens')
@@ -168,9 +194,6 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_decks_id'), table_name='decks')
     op.drop_index(op.f('ix_decks_deck_type'), table_name='decks')
     op.drop_table('decks')
-    op.drop_index(op.f('ix_daily_progress_user_id'), table_name='daily_progress')
-    op.drop_index(op.f('ix_daily_progress_date'), table_name='daily_progress')
-    op.drop_table('daily_progress')
     op.drop_index(op.f('ix_users_username'), table_name='users')
     op.drop_index(op.f('ix_users_id'), table_name='users')
     op.drop_table('users')

@@ -92,6 +92,23 @@ class LanguageOut(LanguageBase):
     id: int
     model_config = ConfigDict(from_attributes=True)
 
+class UserSetLanguagesIn(BaseModel):
+    default_source_language_id: int
+    default_target_language_id: int
+
+class UserLearningPairCreateIn(BaseModel):
+    source_language_id: int
+    target_language_id: int
+    make_default: bool = True
+
+class UserLearningPairOut(BaseModel):
+    id: int
+    source_language_id: int
+    target_language_id: int
+    is_default: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 # ----------------- DECK SECTION -----------------
 
@@ -174,14 +191,16 @@ class RefreshIn(BaseModel):
 class UserOut(BaseModel):
     id: int
     username: str
-    default_source_language_id: Optional[int] = None
-    default_target_language_id: Optional[int] = None
+    daily_card_target: int
+    daily_new_target: int
     model_config = ConfigDict(from_attributes=True)
 
 
 class UserLanguageDefaultsIn(BaseModel):
     default_source_language_id: int = Field(ge=1)
     default_target_language_id: int = Field(ge=1)
+
+
 
 
 # ----------------- STUDY / PROGRESS -----------------
@@ -217,9 +236,6 @@ class StudyBatchOut(BaseModel):
     deck_id: int
     count: int
     cards: List[CardOut]
-
-    # Android-friendly queue with type per card
-    items: Optional[List[StudyQueueItemOut]] = None
 
     # Optional: include current quotas/counters like /study/status
     meta: Optional["StudyStatusOut"] = None

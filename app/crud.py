@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_, or_, func
+from sqlalchemy import update as sa_update
 
 from . import models
 import re
@@ -35,11 +36,128 @@ def create_user(db: Session, username: str, hashed_password: str) -> models.User
     return user
 
 
-# ----------------- Languages (global/admin) -----------------
 
+#---------default users language pair
+
+
+def list_learning_pairs(db: Session, user_id: int):
+    return (
+        db.query(models.UserLearningPair)
+        .filter(models.UserLearningPair.user_id == user_id)
+        .order_by(models.UserLearningPair.is_default.desc(), models.UserLearningPair.id.asc())
+        .all()
+    )
+
+def create_learning_pair(db: Session, user_id: int, source_language_id: int, target_language_id: int):
+    pair = models.UserLearningPair(
+        user_id=user_id,
+        source_language_id=source_language_id,
+        target_language_id=target_language_id,
+        is_default=False,
+    )
+    db.add(pair)
+    db.commit()
+    db.refresh(pair)
+    return pair
+
+def get_or_create_main_deck_for_pair(
+    db: Session,
+    user: models.User,
+    *,
+    source_language_id: int,
+    target_language_id: int,
+) -> models.Deck:
+    deck = (
+        db.query(models.Deck)
+        .filter(
+            models.Deck.owner_id == user.id,
+            models.Deck.deck_type == "user",
+            models.Deck.source_language_id == source_language_id,
+            models.Deck.target_language_id == target_language_id,
+        )
+        .first()
+    )
+    if deck:
+        return deck
+
+    source_lang = db.get(models.Language, source_language_id)
+    target_lang = db.get(models.Language, target_language_id)
+
+    src_code = (source_lang.code or source_lang.name) if source_lang else str(source_language_id)
+    tgt_code = (target_lang.code or target_lang.name) if target_lang else str(target_language_id)
+    deck_name = f"{str(src_code).upper()} → {str(tgt_code).upper()}"
+
+    deck = models.Deck(
+        name=deck_name,
+        owner_id=user.id,
+        source_language_id=source_language_id,
+        target_language_id=target_language_id,
+        deck_type="user",
+    )
+    db.add(deck)
+    db.flush()  # deck.id exists
+
+    access = models.DeckAccess(
+        deck_id=deck.id,
+        user_id=user.id,
+        role=models.DeckRole.OWNER,
+    )
+    db.add(access)
+    db.flush() 
+
+    return deck
+
+def set_default_learning_pair(db: Session, user_id: int, pair_id: int):
+    pair = (
+        db.query(models.UserLearningPair)
+        .filter(
+            models.UserLearningPair.user_id == user_id,
+            models.UserLearningPair.id == pair_id,
+        )
+        .first()
+    )
+    if not pair:
+        return None
+
+    # unset others
+    db.query(models.UserLearningPair).filter(
+        models.UserLearningPair.user_id == user_id,
+        models.UserLearningPair.id != pair_id,
+    ).update({"is_default": False})
+
+    pair.is_default = True
+    db.add(pair)
+
+    # load user once
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        return None  # should not happen, but safe
+
+    # sync old fields ONLY if they exist (compat mode)
+    if hasattr(user, "default_source_language_id"):
+        user.default_source_language_id = pair.source_language_id
+    if hasattr(user, "default_target_language_id"):
+        user.default_target_language_id = pair.target_language_id
+    db.add(user)
+
+    # ensure main deck exists for this default pair
+    get_or_create_main_deck_for_pair(
+        db,
+        user,
+        source_language_id=pair.source_language_id,
+        target_language_id=pair.target_language_id,
+    )
+
+    db.commit()
+    db.refresh(pair)
+    return pair
+
+
+
+
+# ----------------- Languages (global/admin) -----------------
 def list_languages(db: Session) -> List[models.Language]:
     return db.query(models.Language).order_by(models.Language.name.asc()).all()
-
 
 def create_language(db: Session, name: str, code: Optional[str] = None) -> models.Language:
     lang = models.Language(name=name, code=code)
@@ -378,64 +496,6 @@ def join_deck_by_code(db: Session, user_id: int, shared_code: str) -> Optional[m
     db.refresh(access)
     return access
 
-INBOX_DECK_NAME = "Inbox"
-
-def get_inbox_deck(db: Session, user_id: int) -> Optional[models.Deck]:
-    # inbox = a deck owned by this user with name "Inbox"
-    return (
-        db.query(models.Deck)
-        .join(models.DeckAccess, models.DeckAccess.deck_id == models.Deck.id)
-        .filter(
-            models.DeckAccess.user_id == user_id,
-            models.DeckAccess.role == models.DeckRole.OWNER,
-            models.Deck.name == INBOX_DECK_NAME,
-        )
-        .first()
-    )
-
-def get_or_create_inbox_deck(
-    db: Session,
-    user: models.User,
-    *,
-    source_language_id: Optional[int] = None,
-    target_language_id: Optional[int] = None,
-) -> models.Deck:
-    """
-    Returns the user's Inbox deck, creating it if needed.
-
-    Language selection rules:
-    - Prefer user's saved defaults (user.default_source_language_id / default_target_language_id)
-    - If defaults are missing, allow the caller to provide source_language_id + target_language_id.
-      In that case we also save them as the user's defaults.
-    - If neither is available, raise ValueError asking the client to set defaults first.
-    """
-    deck = get_inbox_deck(db, user.id)
-    if deck:
-        return deck
-
-    src = user.default_source_language_id or source_language_id
-    tgt = user.default_target_language_id or target_language_id
-    if not src or not tgt:
-        raise ValueError("Default languages not set. Call PUT /users/me/languages first (or provide source_language_id and target_language_id).")
-    if src == tgt:
-        raise ValueError("source_language_id and target_language_id must be different")
-
-    # If user had no defaults, persist them now
-    if not user.default_source_language_id or not user.default_target_language_id:
-        user.default_source_language_id = src
-        user.default_target_language_id = tgt
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-
-    return create_deck(
-        db,
-        name=INBOX_DECK_NAME,
-        owner_id=user.id,
-        source_language_id=src,
-        target_language_id=tgt,
-    )
-
 def card_exists_in_deck(db: Session, deck_id: int, front: str) -> bool:
     fn = normalize_front(front)
     return db.query(models.Card.id).filter(models.Card.deck_id == deck_id, models.Card.front_norm == fn).first() is not None
@@ -602,6 +662,15 @@ def create_user_card_progress(db: Session, user_id: int, card_id: int) -> models
 
 
 # ----------------- Study selection queries -----------------
+def get_default_learning_pair(db: Session, user_id: int) -> models.UserLearningPair | None:
+    return (
+        db.query(models.UserLearningPair)
+        .filter(
+            models.UserLearningPair.user_id == user_id,
+            models.UserLearningPair.is_default.is_(True),
+        )
+        .first()
+    )
 
 def get_due_reviews(
     db: Session,
@@ -735,31 +804,14 @@ def list_cards_created_on_day(
         q = q.filter(models.Card.deck_id == deck_id)
     return q.all()
 
-def get_daily_progress_filled(db: Session, user_id: int, from_date: date, to_date: date):
-    rows = get_daily_progress(db, user_id, from_date, to_date)
-    by_date = {r.date: r for r in rows}
-
-    cur = from_date
-    out = []
-    while cur <= to_date:
-        r = by_date.get(cur)
-        if r:
-            out.append(r)
-        else:
-            # return zero row (not persisted)
-            out.append(models.DailyProgress(
-                user_id=user_id,
-                date=cur,
-                cards_done=0,
-                reviews_done=0,
-                new_done=0,
-            ))
-        cur = cur + timedelta(days=1)
-    return out
-
-
-def get_daily_progress_filled(db: Session, user_id: int, from_date: date, to_date: date):
-    rows = get_daily_progress(db, user_id, from_date, to_date)
+def get_daily_progress_filled(
+    db: Session,
+    user_id: int,
+    learning_pair_id: int,
+    from_date: date,
+    to_date: date,
+):
+    rows = get_daily_progress(db, user_id, learning_pair_id, from_date, to_date)
     by_date = {r.date: r for r in rows}
 
     cur = from_date
@@ -771,16 +823,16 @@ def get_daily_progress_filled(db: Session, user_id: int, from_date: date, to_dat
         else:
             out.append(models.DailyProgress(
                 user_id=user_id,
+                learning_pair_id=learning_pair_id,
                 date=cur,
                 cards_done=0,
                 reviews_done=0,
                 new_done=0,
             ))
-        cur = cur + timedelta(days=1)
+        cur += timedelta(days=1)
     return out
 
-def get_streak(db: Session, user_id: int, *, threshold: int = 10) -> dict:
-    # use Bishkek day
+def get_streak(db: Session, user_id: int, learning_pair_id: int, *, threshold: int = 10) -> dict:    # use Bishkek day
     today = bishkek_today()
     from_date = today - timedelta(days=400)
 
@@ -788,6 +840,7 @@ def get_streak(db: Session, user_id: int, *, threshold: int = 10) -> dict:
         db.query(models.DailyProgress)
         .filter(
             models.DailyProgress.user_id == user_id,
+            models.DailyProgress.learning_pair_id == learning_pair_id,
             models.DailyProgress.date >= from_date,
             models.DailyProgress.date <= today,
             models.DailyProgress.cards_done >= threshold,
@@ -933,43 +986,28 @@ def get_next_due_at(db: Session, user_id: int, deck_id: int):
 
 
 # ----------------- Daily progress row -----------------
-def get_or_create_daily_progress(
-    db: Session,
-    *,
-    user_id: int,
-    day: date | None = None,
-):
-    if day is None:
-        day = bishkek_today()
-
+def get_or_create_daily_progress(db: Session, *, user_id: int, learning_pair_id: int, day: date) -> models.DailyProgress:
     row = (
         db.query(models.DailyProgress)
         .filter(
             models.DailyProgress.user_id == user_id,
+            models.DailyProgress.learning_pair_id == learning_pair_id,
             models.DailyProgress.date == day,
         )
         .first()
     )
-
     if row:
         return row
 
-    row = models.DailyProgress(
-        user_id=user_id,
-        date=day,
-        cards_done=0,
-        reviews_done=0,
-        new_done=0,
-    )
-
+    row = models.DailyProgress(user_id=user_id, learning_pair_id=learning_pair_id, date=day)
     db.add(row)
-    db.commit()
-    db.refresh(row)
+    db.flush()
     return row
 
 def get_daily_progress(
     db: Session,
     user_id: int,
+    learning_pair_id: int,
     from_date: date,
     to_date: date,
 ):
@@ -980,6 +1018,7 @@ def get_daily_progress(
         db.query(models.DailyProgress)
         .filter(
             models.DailyProgress.user_id == user_id,
+            models.DailyProgress.learning_pair_id == learning_pair_id,
             models.DailyProgress.date >= from_date,
             models.DailyProgress.date <= to_date,
         )
@@ -987,16 +1026,32 @@ def get_daily_progress(
         .all()
     )
 
-def get_daily_progress_for_day(db: Session, user_id: int, day: date):
+def get_daily_progress_for_day(
+    db: Session,
+    user_id: int,
+    learning_pair_id: int,
+    day: date,
+):
     row = (
         db.query(models.DailyProgress)
-        .filter(models.DailyProgress.user_id == user_id, models.DailyProgress.date == day)
+        .filter(
+            models.DailyProgress.user_id == user_id,
+            models.DailyProgress.learning_pair_id == learning_pair_id,
+            models.DailyProgress.date == day,
+        )
         .first()
     )
     if row:
         return row
-    # not persisted -> return zero-like object
-    return models.DailyProgress(user_id=user_id, date=day, cards_done=0, reviews_done=0, new_done=0)
+
+    return models.DailyProgress(
+        user_id=user_id,
+        learning_pair_id=learning_pair_id,
+        date=day,
+        cards_done=0,
+        reviews_done=0,
+        new_done=0,
+    )
 
 def count_total_cards(db: Session, user_id: int, deck_id: int | None = None) -> int:
     q = (
