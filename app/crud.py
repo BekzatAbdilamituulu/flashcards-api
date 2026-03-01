@@ -1,24 +1,21 @@
-
 from __future__ import annotations
 
-from datetime import datetime, date, timedelta
-from typing import Optional, List
+import re
+from datetime import date, datetime, timedelta
+from typing import List, Optional
 
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import and_, or_, func
-from sqlalchemy import update as sa_update
+from sqlalchemy.orm import Session
+
+from app.utils.time import bishkek_day_bounds, bishkek_today
 
 from . import models
-import re
-import secrets
-from app.utils.time import bishkek_today, bishkek_day_bounds
-
 
 # ----------------- Permissions -----------------
 
 # ----------------- Users (Auth) -----------------
+
 
 def get_user_by_username(db: Session, username: str) -> Optional[models.User]:
     return db.query(models.User).filter(models.User.username == username).first()
@@ -36,8 +33,7 @@ def create_user(db: Session, username: str, hashed_password: str) -> models.User
     return user
 
 
-
-#---------default users language pair
+# ---------default users language pair
 
 
 def list_learning_pairs(db: Session, user_id: int):
@@ -48,7 +44,10 @@ def list_learning_pairs(db: Session, user_id: int):
         .all()
     )
 
-def create_learning_pair(db: Session, user_id: int, source_language_id: int, target_language_id: int):
+
+def create_learning_pair(
+    db: Session, user_id: int, source_language_id: int, target_language_id: int
+):
     pair = models.UserLearningPair(
         user_id=user_id,
         source_language_id=source_language_id,
@@ -59,6 +58,7 @@ def create_learning_pair(db: Session, user_id: int, source_language_id: int, tar
     db.commit()
     db.refresh(pair)
     return pair
+
 
 def get_or_create_main_deck_for_pair(
     db: Session,
@@ -99,6 +99,7 @@ def get_or_create_main_deck_for_pair(
     db.add(access)
 
     return deck
+
 
 def set_default_learning_pair(db: Session, user_id: int, pair_id: int):
     pair = (
@@ -146,11 +147,10 @@ def set_default_learning_pair(db: Session, user_id: int, pair_id: int):
     return pair
 
 
-
-
 # ----------------- Languages (global/admin) -----------------
 def list_languages(db: Session) -> List[models.Language]:
     return db.query(models.Language).order_by(models.Language.name.asc()).all()
+
 
 def create_language(db: Session, name: str, code: Optional[str] = None) -> models.Language:
     lang = models.Language(name=name, code=code)
@@ -164,7 +164,9 @@ def create_language(db: Session, name: str, code: Optional[str] = None) -> model
     return lang
 
 
-def update_language(db: Session, language_id: int, name: Optional[str] = None, code: Optional[str] = None) -> Optional[models.Language]:
+def update_language(
+    db: Session, language_id: int, name: Optional[str] = None, code: Optional[str] = None
+) -> Optional[models.Language]:
     lang = db.query(models.Language).filter(models.Language.id == language_id).first()
     if not lang:
         return None
@@ -201,6 +203,7 @@ def delete_language(db: Session, language_id: int) -> bool:
     db.commit()
     return True
 
+
 def require_deck_access(db: Session, user_id: int, deck_id: int) -> models.DeckAccess:
     row = (
         db.query(models.DeckAccess)
@@ -218,13 +221,18 @@ def count_cards_in_deck(db: Session, deck_id: int) -> int:
 
 # ----------------- Library (admin-created decks) -----------------
 
+
 def list_library_decks(
     db: Session,
     *,
     source_language_id: int | None = None,
     target_language_id: int | None = None,
 ):
-    q = db.query(models.Deck).filter(models.Deck.deck_type == "library").order_by(models.Deck.id.desc())
+    q = (
+        db.query(models.Deck)
+        .filter(models.Deck.deck_type == "library")
+        .order_by(models.Deck.id.desc())
+    )
     if source_language_id is not None:
         q = q.filter(models.Deck.source_language_id == source_language_id)
     if target_language_id is not None:
@@ -242,9 +250,7 @@ def list_library_deck_cards(db: Session, deck_id: int, limit: int, offset: int):
         return [], 0
 
     base_q = (
-        db.query(models.Card)
-        .filter(models.Card.deck_id == deck_id)
-        .order_by(models.Card.id.asc())
+        db.query(models.Card).filter(models.Card.deck_id == deck_id).order_by(models.Card.id.asc())
     )
     total = base_q.count()
     items = base_q.offset(offset).limit(limit).all()
@@ -280,7 +286,9 @@ def import_library_card_to_user_deck(
 
     exists = (
         db.query(models.Card.id)
-        .filter(models.Card.deck_id == target_deck_id, models.Card.front_norm == lib_card.front_norm)
+        .filter(
+            models.Card.deck_id == target_deck_id, models.Card.front_norm == lib_card.front_norm
+        )
         .first()
     )
     if exists:
@@ -301,6 +309,7 @@ def import_library_card_to_user_deck(
 
 
 # ----------------- Decks -----------------
+
 
 def create_deck(
     db: Session,
@@ -366,6 +375,7 @@ def update_deck(
     db.refresh(deck)
     return deck
 
+
 def delete_deck(db: Session, deck_id: int, user_id: int) -> bool:
     access = (
         db.query(models.DeckAccess)
@@ -416,19 +426,40 @@ def get_user_decks(
 
     return items, total
 
+
 def card_exists_in_deck(db: Session, deck_id: int, front: str) -> bool:
     fn = normalize_front(front)
-    return db.query(models.Card.id).filter(models.Card.deck_id == deck_id, models.Card.front_norm == fn).first() is not None
+    return (
+        db.query(models.Card.id)
+        .filter(models.Card.deck_id == deck_id, models.Card.front_norm == fn)
+        .first()
+        is not None
+    )
 
 
 # ----------------- Cards -----------------
+
 
 def normalize_front(text: str) -> str:
     # lower, trim, collapse spaces
     return re.sub(r"\s+", " ", (text or "").strip()).lower()
 
-def create_card(db: Session, deck_id: int, user_id: int, front: str, back: str, example_sentence: Optional[str] = None) -> models.Card:
+
+from app.services import auto_content
+
+
+def create_card(
+    db: Session,
+    deck_id: int,
+    user_id: int,
+    front: str,
+    back: str,
+    example_sentence: Optional[str] = None,
+    *,
+    auto_fill: bool = True,
+) -> models.Card:
     access = require_deck_access(db, user_id, deck_id)
+    deck = access.deck
     if access.role not in (models.DeckRole.OWNER, models.DeckRole.EDITOR):
         raise ValueError("No permission to edit deck")
     if access.deck.deck_type == "library":
@@ -439,6 +470,25 @@ def create_card(db: Session, deck_id: int, user_id: int, front: str, back: str, 
         raise ValueError("Front is required")
 
     front_norm = normalize_front(front_clean)
+
+    # Auto-fill ONLY if allowed
+    if auto_fill:
+        if not (back or "").strip():
+            src_lang = deck.source_language
+            tgt_lang = deck.target_language
+            back = (
+                auto_content.get_translation_with_cache(
+                    db, src_lang=src_lang, tgt_lang=tgt_lang, text_raw=front_clean
+                )
+                or ""
+            )
+
+        if not (example_sentence or "").strip():
+            src_lang = deck.source_language
+            tgt_lang = deck.target_language
+            example_sentence = auto_content.get_example_with_cache(
+                db, src_lang=src_lang, tgt_lang=tgt_lang, text_raw=front_clean
+            )
 
     card = models.Card(
         deck_id=deck_id,
@@ -467,6 +517,7 @@ def get_card(db: Session, card_id: int, user_id: int) -> Optional[models.Card]:
         .filter(models.Card.id == card_id, models.DeckAccess.user_id == user_id)
     )
     return q.first()
+
 
 def update_card(
     db: Session,
@@ -551,9 +602,7 @@ def list_deck_cards(
     require_deck_access(db, user_id, deck_id)
 
     base_q = (
-        db.query(models.Card)
-        .filter(models.Card.deck_id == deck_id)
-        .order_by(models.Card.id.asc())
+        db.query(models.Card).filter(models.Card.deck_id == deck_id).order_by(models.Card.id.asc())
     )
 
     total = base_q.count()
@@ -564,10 +613,15 @@ def list_deck_cards(
 
 # ----------------- Study progress (SM-2) -----------------
 
-def get_user_card_progress(db: Session, user_id: int, card_id: int) -> Optional[models.UserCardProgress]:
+
+def get_user_card_progress(
+    db: Session, user_id: int, card_id: int
+) -> Optional[models.UserCardProgress]:
     return (
         db.query(models.UserCardProgress)
-        .filter(models.UserCardProgress.user_id == user_id, models.UserCardProgress.card_id == card_id)
+        .filter(
+            models.UserCardProgress.user_id == user_id, models.UserCardProgress.card_id == card_id
+        )
         .first()
     )
 
@@ -596,6 +650,7 @@ def get_default_learning_pair(db: Session, user_id: int) -> models.UserLearningP
         )
         .first()
     )
+
 
 def get_due_reviews(
     db: Session,
@@ -631,7 +686,6 @@ def get_due_reviews(
     return items, total
 
 
-
 def get_new_cards(
     db: Session,
     deck_id: int,
@@ -659,14 +713,14 @@ def get_new_cards(
                 models.UserCardProgress.id.is_(None),
                 and_(
                     models.UserCardProgress.status == "new",
-                or_(
-                    models.UserCardProgress.due_at.is_(None),
-                    models.UserCardProgress.due_at <= now,
+                    or_(
+                        models.UserCardProgress.due_at.is_(None),
+                        models.UserCardProgress.due_at <= now,
+                    ),
                 ),
-            ),
+            )
         )
     )
-)
 
     if exclude_card_ids:
         base_q = base_q.filter(models.Card.id.notin_(exclude_card_ids))
@@ -678,17 +732,23 @@ def get_new_cards(
 
     return items, total
 
+
 # ----------------- Daily counters for quotas -----------------
+
 
 def _utc_day_start(now: datetime) -> datetime:
     return datetime(now.year, now.month, now.day)
+
 
 def utc_day_bounds(now: datetime):
     start = datetime(now.year, now.month, now.day)
     end = start + timedelta(days=1)
     return start, end
 
-def count_cards_created_on_day(db: Session, user_id: int, d: date, deck_id: int | None = None) -> int:
+
+def count_cards_created_on_day(
+    db: Session, user_id: int, d: date, deck_id: int | None = None
+) -> int:
     start, end = bishkek_day_bounds(d)
 
     q = (
@@ -736,6 +796,7 @@ def list_cards_created_on_day(
         q = q.filter(models.Card.deck_id == deck_id)
     return q.all()
 
+
 def get_daily_progress_filled(
     db: Session,
     user_id: int,
@@ -753,18 +814,23 @@ def get_daily_progress_filled(
         if r:
             out.append(r)
         else:
-            out.append(models.DailyProgress(
-                user_id=user_id,
-                learning_pair_id=learning_pair_id,
-                date=cur,
-                cards_done=0,
-                reviews_done=0,
-                new_done=0,
-            ))
+            out.append(
+                models.DailyProgress(
+                    user_id=user_id,
+                    learning_pair_id=learning_pair_id,
+                    date=cur,
+                    cards_done=0,
+                    reviews_done=0,
+                    new_done=0,
+                )
+            )
         cur += timedelta(days=1)
     return out
 
-def get_streak(db: Session, user_id: int, learning_pair_id: int, *, threshold: int = 10) -> dict:    # use Bishkek day
+
+def get_streak(
+    db: Session, user_id: int, learning_pair_id: int, *, threshold: int = 10
+) -> dict:  # use Bishkek day
     today = bishkek_today()
     from_date = today - timedelta(days=400)
 
@@ -809,6 +875,7 @@ def get_streak(db: Session, user_id: int, learning_pair_id: int, *, threshold: i
 
     return {"current_streak": cur, "best_streak": best_streak(active), "threshold": threshold}
 
+
 def _best_streak(active_dates: set[date]) -> int:
     if not active_dates:
         return 0
@@ -823,6 +890,7 @@ def _best_streak(active_dates: set[date]) -> int:
                 nxt += timedelta(days=1)
             best = max(best, run)
     return best
+
 
 def count_reviewed_today(db: Session, user_id: int, deck_id: int) -> int:
     now = datetime.utcnow()
@@ -875,6 +943,7 @@ def count_due_reviews(db: Session, user_id: int, deck_id: int) -> int:
         .count()
     )
 
+
 def count_new_available(db: Session, user_id: int, deck_id: int) -> int:
     now = datetime.utcnow()
 
@@ -903,6 +972,7 @@ def count_new_available(db: Session, user_id: int, deck_id: int) -> int:
         .count()
     )
 
+
 def get_next_due_at(db: Session, user_id: int, deck_id: int):
     return (
         db.query(func.min(models.UserCardProgress.due_at))
@@ -918,7 +988,9 @@ def get_next_due_at(db: Session, user_id: int, deck_id: int):
 
 
 # ----------------- Daily progress row -----------------
-def get_or_create_daily_progress(db: Session, *, user_id: int, learning_pair_id: int, day: date) -> models.DailyProgress:
+def get_or_create_daily_progress(
+    db: Session, *, user_id: int, learning_pair_id: int, day: date
+) -> models.DailyProgress:
     row = (
         db.query(models.DailyProgress)
         .filter(
@@ -935,6 +1007,7 @@ def get_or_create_daily_progress(db: Session, *, user_id: int, learning_pair_id:
     db.add(row)
     db.flush()
     return row
+
 
 def get_daily_progress(
     db: Session,
@@ -957,6 +1030,7 @@ def get_daily_progress(
         .order_by(models.DailyProgress.date.asc())
         .all()
     )
+
 
 def get_daily_progress_for_day(
     db: Session,
@@ -985,6 +1059,7 @@ def get_daily_progress_for_day(
         new_done=0,
     )
 
+
 def count_total_cards(db: Session, user_id: int, deck_id: int | None = None) -> int:
     q = (
         db.query(models.Card)
@@ -994,6 +1069,7 @@ def count_total_cards(db: Session, user_id: int, deck_id: int | None = None) -> 
     if deck_id is not None:
         q = q.filter(models.Card.deck_id == deck_id)
     return q.count()
+
 
 def count_progress_statuses(db: Session, user_id: int, deck_id: int | None = None) -> dict:
     # mastered + learning from progress rows

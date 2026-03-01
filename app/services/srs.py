@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+
 from sqlalchemy.orm import Session
 
 from .. import crud
-
 
 SMALL_DELAY_SECONDS = 45  # "after few cards" approximation
 
 
 @dataclass(frozen=True)
 class SrsResult:
-    status: str           # new | learning | mastered
-    stage: int | None     # 1..5 when learning
+    status: str  # new | learning | mastered
+    stage: int | None  # 1..5 when learning
     due_at: datetime | None
 
 
@@ -39,10 +39,14 @@ def schedule_next(*, status: str, stage: int | None, learned: bool, now: datetim
     if status == "new":
         if not learned:
             # still new, see again soon
-            return SrsResult(status="new", stage=None, due_at=now + timedelta(seconds=SMALL_DELAY_SECONDS))
+            return SrsResult(
+                status="new", stage=None, due_at=now + timedelta(seconds=SMALL_DELAY_SECONDS)
+            )
 
         # learned == True: enter ladder
-        return SrsResult(status="learning", stage=1, due_at=now + timedelta(seconds=SMALL_DELAY_SECONDS))
+        return SrsResult(
+            status="learning", stage=1, due_at=now + timedelta(seconds=SMALL_DELAY_SECONDS)
+        )
 
     # LEARNING rules
     if status == "learning":
@@ -73,7 +77,10 @@ def schedule_next(*, status: str, stage: int | None, learned: bool, now: datetim
     # fallback
     return SrsResult(status="new", stage=None, due_at=now + timedelta(seconds=SMALL_DELAY_SECONDS))
 
-def _apply_review(db: Session, user_id: int, card_id: int, learned: bool) -> schemas.UserCardProgressOut:
+
+def _apply_review(
+    db: Session, user_id: int, card_id: int, learned: bool
+) -> schemas.UserCardProgressOut:
     card = crud.get_card(db, card_id, user_id)
     if not card:
         raise HTTPException(status_code=404, detail="Card not found or no access")
@@ -108,6 +115,7 @@ def _apply_review(db: Session, user_id: int, card_id: int, learned: bool) -> sch
     db.commit()
     db.refresh(rec)
     return rec
+
 
 def build_next_batch(
     *,
@@ -157,10 +165,9 @@ def build_next_batch(
 
     cards = review_cards + new_cards
 
-    items = (
-        [{"type": "review", "card": c} for c in review_cards]
-        + [{"type": "new", "card": c} for c in new_cards]
-    )
+    items = [{"type": "review", "card": c} for c in review_cards] + [
+        {"type": "new", "card": c} for c in new_cards
+    ]
 
     meta = {
         "deck_id": deck_id,
@@ -180,6 +187,7 @@ def build_next_batch(
         "items": items,
         "meta": meta,
     }
+
 
 def build_study_status(
     *,

@@ -1,6 +1,5 @@
 def make_example_sentence(term: str, source_lang: str) -> str:
-    """Very simple example sentence generator.
-    """
+    """Very simple example sentence generator."""
     t = term.strip()
     if not t:
         return ""

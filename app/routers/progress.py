@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from datetime import date
-from fastapi import APIRouter, Depends, Query, HTTPException
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from .. import crud, models, schemas
 from ..database import get_db
 from ..deps import get_current_user
-from .. import crud, schemas, models
 from ..utils.dates import month_bounds
 from ..utils.time import bishkek_today
 
@@ -30,9 +31,7 @@ def daily_progress_range(
     if from_date > to_date:
         raise HTTPException(status_code=400, detail="from_date must be <= to_date")
 
-    items = crud.get_daily_progress_filled(
-        db, current_user.id, pair_id, from_date, to_date
-    )
+    items = crud.get_daily_progress_filled(db, current_user.id, pair_id, from_date, to_date)
 
     return {
         "from_date": from_date,
@@ -47,6 +46,7 @@ def daily_progress_range(
             for r in items
         ],
     }
+
 
 @router.get("/today-added", response_model=schemas.TodayAddedOut)
 def today_added(
@@ -96,6 +96,7 @@ def today_added(
     count = crud.count_cards_created_on_day(db, current_user.id, d, deck_id=deck_id)
     return {"date": d, "count": count}
 
+
 @router.get("/streak", response_model=schemas.StreakOut)
 def streak(
     threshold: int = Query(default=10, ge=1, le=1000),
@@ -111,6 +112,7 @@ def streak(
 
     data = crud.get_streak(db, current_user.id, pair_id, threshold=threshold)
     return data
+
 
 @router.get("/month", response_model=schemas.DailyProgressRangeOut)
 def monthly_progress(
@@ -130,9 +132,7 @@ def monthly_progress(
         from_date, to_date = month_bounds(year, month)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    items = crud.get_daily_progress_filled(
-        db, current_user.id, pair_id, from_date, to_date
-    )
+    items = crud.get_daily_progress_filled(db, current_user.id, pair_id, from_date, to_date)
 
     return {
         "from_date": from_date,
@@ -147,6 +147,7 @@ def monthly_progress(
             for r in items
         ],
     }
+
 
 @router.get("/summary", response_model=schemas.ProgressSummaryOut)
 def progress_summary(
@@ -202,6 +203,7 @@ def progress_summary(
         "total_learning": status_counts["learning"],
         "total_new": status_counts["new"],
     }
+
 
 @router.delete("/me/progress")
 def reset_my_progress(

@@ -1,15 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from typing import Optional, Tuple
+from sqlalchemy.orm import Session
 
-
+from .. import crud, schemas
 from ..database import get_db
 from ..deps import get_current_user
-from .. import crud, schemas
-from ..services.inbox_service import resolve_language_pair, _split_line
+from ..services.inbox_service import _split_line, resolve_language_pair
 
 router = APIRouter(prefix="/inbox", tags=["inbox"])
+
 
 @router.post("/word", response_model=schemas.InboxWordOut, status_code=status.HTTP_201_CREATED)
 def quick_add_word(
@@ -33,8 +32,9 @@ def quick_add_word(
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    # allow back to be empty now (user fills later)
-    back = payload.back or ""
+
+    back = (payload.back or "").strip()
+    example = payload.example_sentence.strip() if payload.example_sentence else None
 
     try:
         card = crud.create_card(
@@ -42,14 +42,14 @@ def quick_add_word(
             deck_id=deck.id,
             user_id=user.id,
             front=payload.front.strip(),
-            back=back.strip(),
-            example_sentence=(payload.example_sentence.strip() if payload.example_sentence else None),
+            back=back,
+            example_sentence=example,
+            auto_fill=True,
         )
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
     return {"deck_id": deck.id, "card": card}
-
 
 
 @router.post("/bulk", response_model=schemas.InboxBulkOut, status_code=status.HTTP_201_CREATED)
@@ -84,7 +84,9 @@ def bulk_import(
         parsed = _split_line(line, payload.delimiter)
         if not parsed:
             skipped += 1
-            results.append(schemas.BulkItemResult(line=line, status="skipped", reason="empty/invalid"))
+            results.append(
+                schemas.BulkItemResult(line=line, status="skipped", reason="empty/invalid")
+            )
             continue
 
         front, back = parsed
@@ -93,14 +95,18 @@ def bulk_import(
 
         if not front:
             skipped += 1
-            results.append(schemas.BulkItemResult(line=line, status="skipped", reason="empty front"))
+            results.append(
+                schemas.BulkItemResult(line=line, status="skipped", reason="empty front")
+            )
             continue
 
         # normalize for "same request" duplicates
         front_norm = crud.normalize_front(front)  # create this helper (you already planned it)
         if front_norm in seen_norms:
             skipped += 1
-            results.append(schemas.BulkItemResult(line=line, status="skipped", reason="duplicate in paste"))
+            results.append(
+                schemas.BulkItemResult(line=line, status="skipped", reason="duplicate in paste")
+            )
             continue
         seen_norms.add(front_norm)
 
@@ -110,13 +116,13 @@ def bulk_import(
             results.append(schemas.BulkItemResult(line=line, status="skipped", reason="duplicate"))
             continue
 
-        #Dry run: do not insert
+        # Dry run: do not insert
         if payload.dry_run:
             results.append(schemas.BulkItemResult(line=line, status="preview", reason="dry_run"))
             created += 1
             continue
 
-        #Real insert
+        # Real insert
         try:
             card = crud.create_card(
                 db,
@@ -147,4 +153,3 @@ def bulk_import(
         "failed": failed,
         "results": results,
     }
-

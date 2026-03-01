@@ -1,10 +1,12 @@
 from datetime import datetime
+
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
 
 MASTERED = 3
+
 
 def interval_for(uw) -> timedelta:
     if (uw.times_correct or 0) >= 3:
@@ -25,11 +27,7 @@ def get_language_stats(db: Session, user_id: int, language_id: int) -> schemas.S
     if not lang:
         raise HTTPException(status_code=404, detail="Language not found")
 
-    total_words = (
-        db.query(models.Word)
-        .filter(models.Word.language_id == language_id)
-        .count()
-    )
+    total_words = db.query(models.Word).filter(models.Word.language_id == language_id).count()
 
     learned_records = (
         db.query(models.UserWord)
@@ -44,7 +42,7 @@ def get_language_stats(db: Session, user_id: int, language_id: int) -> schemas.S
     learning_words = sum(1 for uw in learned_records if (uw.times_correct or 0) < MASTERED)
     mastered_words = sum(1 for uw in learned_records if (uw.times_correct or 0) >= MASTERED)
 
-    now = datetime.utcnow()  
+    now = datetime.utcnow()
     overdue_words = 0
     for uw in learned_records:
         if uw.last_review and now >= uw.last_review + interval_for(uw):

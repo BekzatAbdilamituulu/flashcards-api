@@ -1,9 +1,7 @@
 from tests.conftest import (
+    admin_create_language,
     auth_headers,
     create_user_and_token,
-    admin_create_language,
-    create_deck,
-    add_card,
 )
 
 
@@ -42,6 +40,7 @@ def test_users_me_and_set_default_languages(client):
         headers=auth_headers(token),
     )
     assert r.status_code == 422
+
 
 def test_learning_pairs_endpoints(client):
     _, admin_token = create_user_and_token(client, "admin")
@@ -109,6 +108,7 @@ def test_learning_pairs_endpoints(client):
     assert sum(1 for p in pairs if p["is_default"]) == 1
     assert any(p["target_language_id"] == ru_id and p["is_default"] for p in pairs)
 
+
 def test_learning_pairs_reject_same_language(client):
     _, admin_token = create_user_and_token(client, "admin")
     _, token = create_user_and_token(client, "user")
@@ -121,6 +121,7 @@ def test_learning_pairs_reject_same_language(client):
         headers=auth_headers(token),
     )
     assert r.status_code == 422
+
 
 def test_learning_pairs_flow(client):
     _, admin_token = create_user_and_token(client, "admin")

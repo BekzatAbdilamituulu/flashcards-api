@@ -1,11 +1,12 @@
-from datetime import date, timedelta
+from datetime import date
+
 from tests.conftest import (
+    add_card,
+    admin_create_language,
     auth_headers,
     create_user_and_token,
-    admin_create_language,
-    create_deck,
-    add_card,
 )
+
 
 def set_default_pair(client, token, src_id, tgt_id) -> int:
     r = client.put(
@@ -28,6 +29,7 @@ def get_main_deck_id(client, token: str) -> int:
     main_deck = next(x for x in r.json()["items"] if x.get("deck_type") == "main")
     return main_deck["id"]
 
+
 def test_progress_month_returns_full_calendar(client):
     # setup
     _, admin_token = create_user_and_token(client, "admin")
@@ -44,7 +46,9 @@ def test_progress_month_returns_full_calendar(client):
     c1 = add_card(client, token, main_deck["id"], "hello", "привет")
 
     # Study 1 card once (still below streak threshold, but will create daily progress row)
-    r = client.post(f"/api/v1/study/{c1['id']}", json={"learned": True}, headers=auth_headers(token))
+    r = client.post(
+        f"/api/v1/study/{c1['id']}", json={"learned": True}, headers=auth_headers(token)
+    )
     assert r.status_code == 200, r.text
 
     # Ask month view for the current month (use server date assumptions)
@@ -76,6 +80,7 @@ def test_progress_month_returns_full_calendar(client):
         assert "reviews_done" in it
         assert "new_done" in it
 
+
 def test_streak_threshold_10_cards(client):
     _, admin_token = create_user_and_token(client, "admin")
     _, token = create_user_and_token(client, "user")
@@ -92,21 +97,28 @@ def test_streak_threshold_10_cards(client):
 
     # study 9 cards -> streak should be 0 (threshold=10)
     for i in range(9):
-        r = client.post(f"/api/v1/study/{cards[i]['id']}", json={"learned": True}, headers=auth_headers(token))
+        r = client.post(
+            f"/api/v1/study/{cards[i]['id']}", json={"learned": True}, headers=auth_headers(token)
+        )
         assert r.status_code == 200, r.text
 
-    r = client.get("/api/v1/progress/streak", params={"pair_id": pair_id}, headers=auth_headers(token))
+    r = client.get(
+        "/api/v1/progress/streak", params={"pair_id": pair_id}, headers=auth_headers(token)
+    )
     assert r.status_code == 200, r.text
     assert r.json()["threshold"] == 10
     assert r.json()["current_streak"] == 0
 
     # study 10th card -> now cards_done=10 today -> streak becomes 1
-    r = client.post(f"/api/v1/study/{cards[9]['id']}", json={"learned": True}, headers=auth_headers(token))
+    r = client.post(
+        f"/api/v1/study/{cards[9]['id']}", json={"learned": True}, headers=auth_headers(token)
+    )
     assert r.status_code == 200, r.text
 
     r = client.get("/api/v1/progress/streak", headers=auth_headers(token))
     assert r.status_code == 200, r.text
     assert r.json()["current_streak"] == 1
+
 
 def test_today_added_cards_count(client):
     _, admin_token = create_user_and_token(client, "admin")
@@ -117,7 +129,9 @@ def test_today_added_cards_count(client):
     pair_id = set_default_pair(client, token, en_id, ru_id)
     main_deck_id = get_main_deck_id(client, token)
 
-    r = client.get("/api/v1/progress/today-added", params={"pair_id": pair_id}, headers=auth_headers(token))
+    r = client.get(
+        "/api/v1/progress/today-added", params={"pair_id": pair_id}, headers=auth_headers(token)
+    )
     assert r.status_code == 200, r.text
     before = r.json()["count"]
 
@@ -128,6 +142,7 @@ def test_today_added_cards_count(client):
     after = r.json()["count"]
 
     assert after == before + 1
+
 
 def test_progress_summary_basic(client):
     _, admin_token = create_user_and_token(client, "admin")

@@ -1,19 +1,24 @@
-from fastapi import APIRouter, Depends, status, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from .. import crud, schemas
 from ..database import get_db
-from .. import schemas, crud
 from ..deps import get_current_user
 
 router = APIRouter(prefix="/languages", tags=["languages"])
 
+
 @router.post("", response_model=schemas.LanguageOut)
-def create_language(language: schemas.LanguageCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def create_language(
+    language: schemas.LanguageCreate, db: Session = Depends(get_db), user=Depends(get_current_user)
+):
     return crud.create_language(db, language, user.id)
+
 
 @router.get("", response_model=list[schemas.LanguageOut])
 def get_languages(db: Session = Depends(get_db), user=Depends(get_current_user)):
     return crud.get_languages(db, user.id)
+
 
 @router.patch("/{language_id}", response_model=schemas.LanguageOut)
 def update_language(

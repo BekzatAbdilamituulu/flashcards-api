@@ -1,17 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
-from ..database import get_db
 from .. import crud, schemas
+from ..database import get_db
 from ..deps import require_admin
-
 
 router = APIRouter(prefix="/admin/languages", tags=["admin"])
 
 
 @router.post("", response_model=schemas.LanguageOut, status_code=status.HTTP_201_CREATED)
-def create_language(payload: schemas.LanguageCreate, db: Session = Depends(get_db), _admin=Depends(require_admin)):
+def create_language(
+    payload: schemas.LanguageCreate, db: Session = Depends(get_db), _admin=Depends(require_admin)
+):
     try:
         return crud.create_language(db, name=payload.name, code=payload.code)
     except IntegrityError:

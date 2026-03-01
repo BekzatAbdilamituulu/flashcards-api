@@ -1,16 +1,19 @@
-
 from __future__ import annotations
-from fastapi import HTTPException
-from pydantic import BaseModel, ConfigDict, Field
-from datetime import datetime, date
-from typing import Optional, List, Generic, TypeVar
+
+from datetime import date, datetime
 from enum import Enum
+from typing import Generic, List, Optional, TypeVar
+
+from pydantic import BaseModel, ConfigDict, Field
+
 
 class LoginIn(BaseModel):
     username: str
     password: str
 
+
 # ----------------- CARD SECTION -----------------
+
 
 class CardBase(BaseModel):
     front: str
@@ -44,9 +47,10 @@ class InboxWordIn(BaseModel):
     source_language_id: Optional[int] = None
     target_language_id: Optional[int] = None
 
+
 class InboxWordOut(BaseModel):
     deck_id: int
-    card: CardOut 
+    card: CardOut
 
 
 class InboxBulkIn(BaseModel):
@@ -57,11 +61,13 @@ class InboxBulkIn(BaseModel):
     target_language_id: Optional[int] = Field(default=None, ge=1)
     dry_run: bool = False
 
+
 class BulkItemResult(BaseModel):
     line: str
     status: str  # "created" | "skipped" | "failed"
     reason: Optional[str] = None
     card_id: Optional[int] = None
+
 
 class InboxBulkOut(BaseModel):
     deck_id: int
@@ -71,8 +77,8 @@ class InboxBulkOut(BaseModel):
     results: List[BulkItemResult]
 
 
-
 # --------------- LANGUAGE SECTION -------------------
+
 
 class LanguageBase(BaseModel):
     name: str
@@ -92,14 +98,17 @@ class LanguageOut(LanguageBase):
     id: int
     model_config = ConfigDict(from_attributes=True)
 
+
 class UserSetLanguagesIn(BaseModel):
     default_source_language_id: int
     default_target_language_id: int
+
 
 class UserLearningPairCreateIn(BaseModel):
     source_language_id: int
     target_language_id: int
     make_default: bool = True
+
 
 class UserLearningPairOut(BaseModel):
     id: int
@@ -111,6 +120,7 @@ class UserLearningPairOut(BaseModel):
 
 
 # ----------------- DECK SECTION -----------------
+
 
 class DeckBase(BaseModel):
     name: str
@@ -127,15 +137,19 @@ class DeckOut(DeckBase):
     id: int
     model_config = ConfigDict(from_attributes=True, use_enum_values=True)
 
+
 class DeckUpdate(BaseModel):
     name: Optional[str] = None
     is_public: Optional[bool] = None
+
 
 class DeckStatus(str, Enum):
     DRAFT = "DRAFT"
     PUBLISHED = "PUBLISHED"
 
+
 # ----------------- LIBRARY -----------------
+
 
 class LibraryDeckOut(BaseModel):
     id: int
@@ -158,6 +172,7 @@ class ImportCardOut(BaseModel):
 
 
 # ----------------- USER SECTION -----------------
+
 
 class RegisterIn(BaseModel):
     username: str
@@ -187,13 +202,12 @@ class UserLanguageDefaultsIn(BaseModel):
     default_target_language_id: int = Field(ge=1)
 
 
-
-
 # ----------------- STUDY / PROGRESS -----------------
 class ProgressStatus(str, Enum):
     NEW = "new"
     LEARNING = "learning"
     MASTERED = "mastered"
+
 
 class UserCardProgressOut(BaseModel):
     user_id: int
@@ -202,7 +216,7 @@ class UserCardProgressOut(BaseModel):
     times_correct: int
     status: ProgressStatus  # new | learning | mastered
 
-    stage: Optional[int] = None      # 1..5 when learning
+    stage: Optional[int] = None  # 1..5 when learning
     last_review: Optional[datetime] = None
     due_at: Optional[datetime] = None
 
@@ -237,13 +251,16 @@ class StudyStatusOut(BaseModel):
     remaining_new_quota: int
     next_due_at: Optional[datetime] = None
 
+
 T = TypeVar("T")
 
+
 class PageMeta(BaseModel):
-    limit: int 
-    offset: int 
-    total: int 
+    limit: int
+    offset: int
+    total: int
     has_more: bool
+
 
 class Page(BaseModel, Generic[T]):
     items: List[T]
@@ -256,19 +273,23 @@ class DailyProgressOut(BaseModel):
     reviews_done: int
     new_done: int
 
+
 class DailyProgressRangeOut(BaseModel):
     from_date: date
     to_date: date
     items: list[DailyProgressOut]
+
 
 class StreakOut(BaseModel):
     current_streak: int
     best_streak: int
     threshold: int = 10
 
+
 class TodayAddedOut(BaseModel):
     date: date
     count: int
+
 
 class ProgressSummaryOut(BaseModel):
     date: date  # Bishkek today
@@ -294,3 +315,28 @@ class ProgressSummaryOut(BaseModel):
     total_mastered: int
     total_learning: int
     total_new: int
+
+
+class AutoPreviewIn(BaseModel):
+    front: str
+    deck_id: Optional[int] = None
+    source_language_id: Optional[int] = None
+    target_language_id: Optional[int] = None
+
+
+class AutoProvidersOut(BaseModel):
+    translation: Optional[str] = None
+    example: Optional[str] = None
+
+
+class AutoCachedOut(BaseModel):
+    translation: bool = False
+    example: bool = False
+
+
+class AutoPreviewOut(BaseModel):
+    front: str
+    suggested_back: Optional[str] = None
+    suggested_example_sentence: Optional[str] = None
+    provider: AutoProvidersOut
+    cached: AutoCachedOut

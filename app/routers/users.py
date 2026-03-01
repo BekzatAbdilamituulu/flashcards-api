@@ -1,11 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import Optional
 
+from .. import crud, models, schemas
 from ..database import get_db
 from ..deps import get_current_user
-from .. import crud, models, schemas
-from datetime import date
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -13,6 +11,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.get("/me", response_model=schemas.UserOut)
 def me(current_user=Depends(get_current_user)):
     return current_user
+
 
 @router.put("/me/languages", response_model=schemas.UserOut)
 def set_default_languages(
@@ -49,6 +48,7 @@ def set_default_languages(
     # return fresh user (so defaults are not None)
     user = db.query(models.User).filter(models.User.id == current_user.id).first()
     return user
+
 
 @router.get("/me/learning-pairs", response_model=list[schemas.UserLearningPairOut])
 def my_learning_pairs(

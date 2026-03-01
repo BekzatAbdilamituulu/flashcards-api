@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-from uuid import uuid4
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
 
+from .. import crud, schemas
 from ..database import get_db
-from .. import crud, schemas, models
 from ..deps import get_current_user
-
 
 router = APIRouter(prefix="/decks", tags=["decks"])
 
@@ -68,6 +64,7 @@ def get_deck(deck_id: int, db: Session = Depends(get_db), user=Depends(get_curre
         raise HTTPException(status_code=404, detail="Deck not found or no access")
     return deck
 
+
 @router.patch("/{deck_id}", response_model=schemas.DeckOut)
 def patch_deck(
     deck_id: int,
@@ -96,7 +93,7 @@ def patch_deck(
         raise HTTPException(status_code=404, detail="Deck not found")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-        
+
 
 @router.delete("/{deck_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_deck(deck_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
@@ -113,6 +110,7 @@ def delete_deck(deck_id: int, db: Session = Depends(get_db), user=Depends(get_cu
         # crud.delete_deck should enforce owner check; if it returns False => not owner
         raise HTTPException(status_code=404, detail="Deck not found or not owner")
     return
+
 
 @router.get("/{deck_id}/cards", response_model=schemas.Page[schemas.CardOut])
 def list_cards(
@@ -144,8 +142,9 @@ def list_cards(
     }
 
 
-
-@router.post("/{deck_id}/cards", response_model=schemas.CardOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{deck_id}/cards", response_model=schemas.CardOut, status_code=status.HTTP_201_CREATED
+)
 def create_card(
     deck_id: int,
     payload: schemas.CardCreate,
@@ -213,6 +212,3 @@ def delete_card(
     if not ok:
         raise HTTPException(status_code=404, detail="Card not found")
     return
-
-
-

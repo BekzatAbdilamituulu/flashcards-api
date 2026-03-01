@@ -1,11 +1,12 @@
 from tests.conftest import (
-    auth_headers,
-    create_user_and_token,
-    admin_create_language,
-    create_deck,
     add_card,
+    admin_create_language,
+    auth_headers,
+    create_deck,
+    create_user_and_token,
     get_main_deck_id,
 )
+
 
 def test_stage1_wrong_stays_stage1(client, token_headers, make_deck_with_cards):
     deck, cards = make_deck_with_cards(n=1)
@@ -19,12 +20,14 @@ def test_stage1_wrong_stays_stage1(client, token_headers, make_deck_with_cards):
     assert p["status"] == "learning"
     assert p["stage"] == 1
 
+
 def _post_learned(client, token_headers, card_id: int, learned: bool):
     return client.post(
         f"/api/v1/study/{card_id}",
         json={"learned": learned},
         headers=token_headers,
     )
+
 
 def _get_progress(client, token_headers, card_id: int):
     # You already have /users/me/progress endpoint in tests
@@ -37,6 +40,7 @@ def _get_progress(client, token_headers, card_id: int):
         if row["card_id"] == card_id:
             return row
     return None
+
 
 def test_study_next_and_status_and_review_flow(client):
     _, admin_token = create_user_and_token(client, "admin")
@@ -58,7 +62,11 @@ def test_study_next_and_status_and_review_flow(client):
     assert status1["new_available_count"] >= 2
 
     # next batch
-    r = client.get(f"/api/v1/study/decks/{deck_id}/next", params={"limit": 2, "new_ratio": 1.0}, headers=auth_headers(token))
+    r = client.get(
+        f"/api/v1/study/decks/{deck_id}/next",
+        params={"limit": 2, "new_ratio": 1.0},
+        headers=auth_headers(token),
+    )
     assert r.status_code == 200, r.text
     batch = r.json()
     assert batch["deck_id"] == deck_id
@@ -66,14 +74,18 @@ def test_study_next_and_status_and_review_flow(client):
     assert len(batch["cards"]) == batch["count"]
 
     # study card (body correct)
-    r = client.post(f"/api/v1/study/{c1['id']}", json={"learned": True}, headers=auth_headers(token))
+    r = client.post(
+        f"/api/v1/study/{c1['id']}", json={"learned": True}, headers=auth_headers(token)
+    )
     assert r.status_code == 200, r.text
     prog = r.json()
     assert prog["card_id"] == c1["id"]
     assert prog["times_seen"] >= 1
 
     # study card (quality)
-    r = client.post(f"/api/v1/study/{c2['id']}", json={"learned": False}, headers=auth_headers(token))
+    r = client.post(
+        f"/api/v1/study/{c2['id']}", json={"learned": False}, headers=auth_headers(token)
+    )
     assert r.status_code == 200, r.text
 
     # status after studying: reviewed_today/new_introduced_today change
@@ -96,6 +108,7 @@ def test_study_requires_input(client):
 
     r = client.post(f"/api/v1/study/{c1['id']}", headers=auth_headers(token))
     assert r.status_code == 422, r.text
+
 
 def test_learning_stage2_fail_does_not_advance(client, token_headers, make_deck_with_cards):
     deck, cards = make_deck_with_cards(n=1)
@@ -124,7 +137,8 @@ def test_learning_stage2_fail_does_not_advance(client, token_headers, make_deck_
 
     # Depending on your rule: you currently drop back to stage 1
     assert p["status"] == "learning"
-    assert p["stage"] == 1   # key: not 3
+    assert p["stage"] == 1  # key: not 3
+
 
 def test_learning_must_be_correct_to_advance(client, token_headers, make_deck_with_cards):
     deck, cards = make_deck_with_cards(n=1)
@@ -147,6 +161,7 @@ def test_learning_must_be_correct_to_advance(client, token_headers, make_deck_wi
     # now pass stage2 => should go to stage3
     r = _post_learned(client, token_headers, card_id, True)
     assert r.json()["stage"] == 3
+
 
 def test_learning_full_ladder_to_mastered(client, token_headers, make_deck_with_cards):
     deck, cards = make_deck_with_cards(n=1)
@@ -176,6 +191,7 @@ def test_learning_full_ladder_to_mastered(client, token_headers, make_deck_with_
     p = _post_learned(client, token_headers, card_id, True).json()
     assert p["status"] == "mastered"
     assert p["due_at"] is None
+
 
 def test_learning_wrong_drops_one_stage(client, token_headers, make_deck_with_cards):
     deck_id, cards = make_deck_with_cards(n=1)

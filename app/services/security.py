@@ -1,13 +1,12 @@
-
+import hashlib
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from jose import jwt, JWTError
+from jose import JWTError, jwt
 from passlib.context import CryptContext
-import os
+
 from app.config import settings
-import hashlib
-import uuid
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -17,11 +16,14 @@ ACCESS_TOKEN_EXPIRE_MINUTES = settings.access_token_expire_minutes
 REFRESH_SECRET_KEY = settings.refresh_secret_key
 REFRESH_TOKEN_EXPIRE_DAYS = settings.refresh_token_expire_days
 
+
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
+
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
@@ -40,12 +42,14 @@ def create_access_token(subject: str, expires_minutes: int = ACCESS_TOKEN_EXPIRE
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
+
 def create_refresh_token(subject: str, expires_days: int = REFRESH_TOKEN_EXPIRE_DAYS):
     expire = datetime.now(timezone.utc) + timedelta(days=expires_days)
     jti = str(uuid.uuid4())
     payload = {"sub": subject, "type": "refresh", "jti": jti, "exp": expire}
     token = jwt.encode(payload, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
     return token, jti, expire
+
 
 def decode_token(token: str) -> Optional[str]:
     try:

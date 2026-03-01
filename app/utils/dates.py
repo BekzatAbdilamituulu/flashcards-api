@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+
 def month_bounds(year: int, month: int) -> tuple[date, date]:
     """
     Returns (first_day, last_day) inclusive for a given month.

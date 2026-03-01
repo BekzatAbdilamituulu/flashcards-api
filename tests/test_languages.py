@@ -1,7 +1,7 @@
 from tests.conftest import (
+    admin_create_language,
     auth_headers,
     create_user_and_token,
-    admin_create_language,
 )
 
 

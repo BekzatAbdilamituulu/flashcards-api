@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-
 os.environ.setdefault("DATABASE_URL", "sqlite:///./data/test_flashcards.db")
 os.environ.setdefault("SECRET_KEY", "test-secret")
 os.environ.setdefault("ALGORITHM", "HS256")
@@ -22,13 +21,10 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from app.database import Base, get_db
-
 # IMPORTANT: ensure models are imported before create_all
 import app.models  # noqa: F401
-
+from app.database import Base, get_db
 from app.main import app
-
 
 
 def auth_headers(token: str) -> dict:
@@ -47,12 +43,15 @@ def login(client, username: str, password: str = "1234") -> str:
     return r.json()["access_token"]
 
 
-def create_user_and_token(client: TestClient, username: str, password: str = "pass1234") -> tuple[dict, str]:
+def create_user_and_token(
+    client: TestClient, username: str, password: str = "pass1234"
+) -> tuple[dict, str]:
     token = register(client, username, password)
     me = client.get("/api/v1/users/me", headers=auth_headers(token))
     assert me.status_code == 200, me.text
     return me.json(), token
-    
+
+
 def login_user_tokens(client, username: str, password: str = "1234") -> dict:
     r = client.post("/api/v1/auth/login", data={"username": username, "password": password})
     assert r.status_code == 200, r.text
@@ -127,6 +126,7 @@ def client(db_session):
 
 # --------- small helpers used by many tests ---------
 
+
 def admin_create_language(client: TestClient, admin_token: str, name: str, code: str) -> int:
     r = client.post(
         "/api/v1/admin/languages",
@@ -155,7 +155,14 @@ def create_deck(client: TestClient, token: str, name: str, src_id: int, tgt_id: 
     return r.json()["id"]
 
 
-def add_card(client: TestClient, token: str, deck_id: int, front: str, back: str, example_sentence: str | None = None) -> dict:
+def add_card(
+    client: TestClient,
+    token: str,
+    deck_id: int,
+    front: str,
+    back: str,
+    example_sentence: str | None = None,
+) -> dict:
     r = client.post(
         f"/api/v1/decks/{deck_id}/cards",
         json={"front": front, "back": back, "example_sentence": example_sentence},
@@ -164,15 +171,18 @@ def add_card(client: TestClient, token: str, deck_id: int, front: str, back: str
     assert r.status_code == 201, r.text
     return r.json()
 
+
 @pytest.fixture()
 def user_token(client):
     # one normal user for stage tests
     _, token = create_user_and_token(client, "user")
     return token
-    
+
+
 @pytest.fixture()
 def token_headers(user_token):
     return auth_headers(user_token)
+
 
 @pytest.fixture()
 def make_deck_with_cards(client, user_token):

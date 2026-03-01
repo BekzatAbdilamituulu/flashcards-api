@@ -1,18 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from fastapi.security import OAuth2PasswordRequestForm
-from jose import jwt, JWTError
 from datetime import datetime, timezone
-from ..database import get_db
-from ..config import settings
+
+from fastapi import APIRouter, Depends, HTTPException
+from jose import JWTError, jwt
+from sqlalchemy.orm import Session
+
 from .. import crud, schemas
+from ..config import settings
+from ..database import get_db
 from ..models import RefreshToken
 from ..services.security import (
-    verify_password,
     create_access_token,
     create_refresh_token,
     hash_password,
     hash_token,
+    verify_password,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -120,25 +121,32 @@ def refresh_tokens(payload: schemas.RefreshIn, db: Session = Depends(get_db)):
     access = create_access_token(subject=user.username)
     new_refresh, new_jti, new_exp = create_refresh_token(subject=user.username)
 
-    db.add(RefreshToken(
-        user_id=user.id,
-        jti=new_jti,
-        token_hash=hash_token(new_refresh),
-        expires_at=new_exp,
-    ))
+    db.add(
+        RefreshToken(
+            user_id=user.id,
+            jti=new_jti,
+            token_hash=hash_token(new_refresh),
+            expires_at=new_exp,
+        )
+    )
 
     db.commit()
 
     return schemas.TokenOut(access_token=access, refresh_token=new_refresh)
 
+
 @router.post("/logout")
 def logout(payload: schemas.RefreshIn, db: Session = Depends(get_db)):
     token_hash = hash_token(payload.refresh_token)
 
-    db_token = db.query(RefreshToken).filter(
-        RefreshToken.token_hash == token_hash,
-        RefreshToken.revoked_at.is_(None),
-    ).first()
+    db_token = (
+        db.query(RefreshToken)
+        .filter(
+            RefreshToken.token_hash == token_hash,
+            RefreshToken.revoked_at.is_(None),
+        )
+        .first()
+    )
 
     if db_token:
         db_token.revoked_at = datetime.utcnow()

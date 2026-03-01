@@ -21,6 +21,7 @@ Make vocabulary learning effortless, motivating, and consistent.
 - JWT Authentication
 - Deck & Card Management
 - Per-User Progress Tracking
+- Auto-translation(MyMemory api, for example sentence Tatoeba)
 - SM-2 Spaced Repetition Algorithm
 - Smart Study Queue (/study/next)
 - Due / New Card Prioritization
@@ -122,6 +123,8 @@ Key entities:
 - UserCardProgress
 - DailyProgress
 - DeckAccess (role-based)
+- TranslationCache
+- ExampleSentenceCache
 
 ------------------------------------------------------------------------
 

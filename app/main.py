@@ -1,18 +1,18 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-
 from .routers import (
-    health,
-    auth,
-    users,
     admin_languages,
-    languages,
+    auth,
+    auto,
     decks,
-    study,
+    health,
     inbox,
-    progress,
+    languages,
     library,
+    progress,
+    study,
+    users,
 )
 
 app = FastAPI(title="Flashcards API")
@@ -27,7 +27,7 @@ app.add_middleware(
 
 API_V1_PREFIX = "/api/v1"
 
-app.include_router(health.router,prefix=API_V1_PREFIX)
+app.include_router(health.router, prefix=API_V1_PREFIX)
 app.include_router(auth.router, prefix=API_V1_PREFIX)
 app.include_router(admin_languages.router, prefix=API_V1_PREFIX)
 app.include_router(users.router, prefix=API_V1_PREFIX)
@@ -37,4 +37,4 @@ app.include_router(decks.router, prefix=API_V1_PREFIX)
 app.include_router(study.router, prefix=API_V1_PREFIX)
 app.include_router(progress.router, prefix=API_V1_PREFIX)
 app.include_router(library.router, prefix=API_V1_PREFIX)
-
+app.include_router(auto.router, prefix=API_V1_PREFIX)

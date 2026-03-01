@@ -1,10 +1,9 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from ..database import get_db
 from .. import crud, schemas
+from ..database import get_db
 from ..deps import get_current_user
-
 
 router = APIRouter(prefix="/languages", tags=["languages"])
 

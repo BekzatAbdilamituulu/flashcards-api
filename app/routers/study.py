@@ -1,15 +1,16 @@
-
 from __future__ import annotations
-
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from .. import crud, models, schemas
 from ..database import get_db
-from .. import crud, schemas, models
-from ..services.srs import schedule_next, build_next_batch, _apply_review, build_study_status
 from ..deps import get_current_user
+from ..services.srs import (
+    _apply_review,
+    build_next_batch,
+    build_study_status,
+)
 from ..utils.time import bishkek_today
 
 router = APIRouter(prefix="/study", tags=["study"])
@@ -65,13 +66,16 @@ def study_card_me(
         db.flush()
 
     day = bishkek_today()
-    dp = crud.get_or_create_daily_progress(db, user_id=current_user.id, learning_pair_id=pair.id, day=day)
+    dp = crud.get_or_create_daily_progress(
+        db, user_id=current_user.id, learning_pair_id=pair.id, day=day
+    )
     dp.cards_done += 1
     dp.reviews_done += 1 if was_review else 0
     dp.new_done += 0 if was_review else 1
 
     db.commit()
     return result
+
 
 @router.get("/decks/{deck_id}/next", response_model=schemas.StudyBatchOut)
 def next_study_for_deck(

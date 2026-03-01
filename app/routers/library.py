@@ -3,10 +3,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from .. import crud, schemas
 from ..database import get_db
 from ..deps import get_current_user, require_admin
-from .. import crud, schemas
-
 
 router = APIRouter(prefix="/library", tags=["library"])
 

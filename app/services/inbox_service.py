@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import re
 from typing import Optional, Tuple
+
 from sqlalchemy.orm import Session
 
 from .. import models
-import re
 
 # Matches: em dash, en dash, minus sign, hyphen variants, colon, semicolon, equals, tab, pipe
 SPLIT_RE = re.compile(r"\s*(?:—|–|−|-|‐|:|;|=|\t|\|)\s*", re.UNICODE)
+
 
 def _split_line(line: str, fixed_delim: Optional[str]) -> Optional[Tuple[str, str]]:
     raw = (line or "").strip()
@@ -37,8 +39,6 @@ def _split_line(line: str, fixed_delim: Optional[str]) -> Optional[Tuple[str, st
 
 INBOX_DECK_NAME = "Inbox"
 
-from typing import Optional, Tuple
-from sqlalchemy.orm import Session
 
 def resolve_language_pair(
     db: Session,
@@ -62,7 +62,9 @@ def resolve_language_pair(
 
     # If only one is provided -> error (client bug)
     if src_provided ^ tgt_provided:
-        raise ValueError("Provide BOTH source_language_id and target_language_id, or provide neither.")
+        raise ValueError(
+            "Provide BOTH source_language_id and target_language_id, or provide neither."
+        )
 
     # Case 1 — explicit pair in payload
     if src_provided and tgt_provided:
@@ -118,4 +120,3 @@ def resolve_language_pair(
         "No default language pair. Set it via /users/me/learning-pairs "
         "or include source_language_id and target_language_id in request."
     )
-

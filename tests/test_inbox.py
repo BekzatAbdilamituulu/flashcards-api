@@ -1,7 +1,7 @@
 from tests.conftest import (
+    admin_create_language,
     auth_headers,
     create_user_and_token,
-    admin_create_language,
     set_default_languages,
 )
 
@@ -31,7 +31,6 @@ def test_inbox_quick_add_creates_inbox_deck_and_card(client):
     body = r.json()
     assert "deck_id" in body and "card" in body
     assert body["card"]["front"] == "apple"
-
 
 
 def test_inbox_bulk_import_dry_run_and_dedupe(client):
@@ -85,6 +84,7 @@ justfront
     assert out2["created"] >= 2
     assert out2["skipped"] >= 2  # duplicate + comment/blank
 
+
 def test_inbox_is_per_language_pair(client):
     _, admin_token = create_user_and_token(client, "admin")
     _, token = create_user_and_token(client, "user")
@@ -126,6 +126,7 @@ def test_inbox_is_per_language_pair(client):
 
     assert deck1 != deck2  # different inbox decks per pair
 
+
 def test_inbox_without_payload_languages_uses_default_pair(client):
     _, admin_token = create_user_and_token(client, "admin")
     _, token = create_user_and_token(client, "user")
@@ -157,6 +158,7 @@ def test_inbox_without_payload_languages_uses_default_pair(client):
     assert r.status_code == 201, r.text
     body = r.json()
     assert "deck_id" in body
+
 
 def test_inbox_requires_languages_if_no_default_pair(client):
     _, admin_token = create_user_and_token(client, "admin")

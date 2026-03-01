@@ -1,8 +1,7 @@
-
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import enum
+from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
@@ -11,16 +10,16 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
-    Index,
     func,
 )
 from sqlalchemy.orm import relationship
 
 from .database import Base
-import uuid
 
 
 class User(Base):
@@ -39,12 +38,15 @@ class User(Base):
     decks = relationship("Deck", back_populates="owner", cascade="all, delete-orphan")
     shared_decks = relationship("DeckAccess", back_populates="user", cascade="all, delete-orphan")
 
+
 class UserLearningPair(Base):
     __tablename__ = "user_learning_pairs"
 
     id = Column(Integer, primary_key=True, index=True)
 
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     source_language_id = Column(Integer, ForeignKey("languages.id"), nullable=False)
     target_language_id = Column(Integer, ForeignKey("languages.id"), nullable=False)
 
@@ -66,11 +68,14 @@ class UserLearningPair(Base):
         Index("ix_user_learning_pairs_user_default", "user_id", "is_default"),
     )
 
+
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
 
     # jti is inside JWT; unique per refresh token
     jti = Column(String(36), nullable=False, unique=True, index=True)
@@ -84,6 +89,7 @@ class RefreshToken(Base):
 
     user = relationship("User", backref="refresh_tokens")
 
+
 Index("ix_refresh_tokens_user_revoked", RefreshToken.user_id, RefreshToken.revoked_at)
 
 
@@ -91,6 +97,7 @@ class Language(Base):
     """
     Global/admin-managed. Do NOT attach to a user.
     """
+
     __tablename__ = "languages"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -103,10 +110,12 @@ class DeckStatus(enum.Enum):
     PUBLISHED = "published"
     HIDDEN = "hidden"
 
+
 class DeckType(enum.Enum):
     MAIN = "main"
     USERS = "users"
     LIBRARY = "library"
+
 
 class Deck(Base):
     __tablename__ = "decks"
@@ -121,7 +130,9 @@ class Deck(Base):
     # sharing
     is_public = Column(Boolean, default=False, nullable=False)
     status = Column(Enum(DeckStatus), default=DeckStatus.DRAFT, nullable=False)
-    shared_code = Column(String, nullable=True, unique=True)  # generate on publish or on "create share link"
+    shared_code = Column(
+        String, nullable=True, unique=True
+    )  # generate on publish or on "create share link"
 
     # deck type
     #'main' main deck user can study
@@ -140,7 +151,10 @@ class Deck(Base):
     cards = relationship("Card", back_populates="deck", cascade="all, delete-orphan")
 
     # permissions
-    user_permissions = relationship("DeckAccess", back_populates="deck", cascade="all, delete-orphan")
+    user_permissions = relationship(
+        "DeckAccess", back_populates="deck", cascade="all, delete-orphan"
+    )
+
 
 class DeckRole(enum.Enum):
     OWNER = "owner"
@@ -157,9 +171,7 @@ class DeckAccess(Base):
 
     role = Column(Enum(DeckRole), default=DeckRole.VIEWER, nullable=False)
 
-    __table_args__ = (
-        UniqueConstraint("deck_id", "user_id", name="uq_deck_access_deck_user"),
-    )
+    __table_args__ = (UniqueConstraint("deck_id", "user_id", name="uq_deck_access_deck_user"),)
 
     deck = relationship("Deck", back_populates="user_permissions")
     user = relationship("User", back_populates="shared_decks")
@@ -171,22 +183,21 @@ class Card(Base):
     id = Column(Integer, primary_key=True, index=True)
     front = Column(String, nullable=False)
     front_norm = Column(String, nullable=False, index=True)
-    back = Column(String, nullable=False)
+    back = Column(String, nullable=True)
     example_sentence = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     deck_id = Column(Integer, ForeignKey("decks.id"), nullable=False, index=True)
     deck = relationship("Deck", back_populates="cards")
 
-    __table_args__ = (
-        UniqueConstraint("deck_id", "front_norm", name="uq_cards_deck_front_norm"),
-    )
+    __table_args__ = (UniqueConstraint("deck_id", "front_norm", name="uq_cards_deck_front_norm"),)
 
 
 class UserCardProgress(Base):
     """
     Per-user SM-2 progress for a specific card.
     """
+
     __tablename__ = "user_card_progress"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -233,6 +244,80 @@ class DailyProgress(Base):
     new_done = Column(Integer, default=0)
 
     __table_args__ = (
-        UniqueConstraint("user_id", "learning_pair_id", "date", name="uq_daily_progress_user_pair_date"),
+        UniqueConstraint(
+            "user_id", "learning_pair_id", "date", name="uq_daily_progress_user_pair_date"
+        ),
         Index("ix_daily_progress_user_pair_date", "user_id", "learning_pair_id", "date"),
+    )
+
+
+# Translation
+class TranslationCache(Base):
+    __tablename__ = "translation_cache"
+
+    id = Column(Integer, primary_key=True)
+
+    # what was translated
+    src_language_id = Column(Integer, ForeignKey("languages.id"), nullable=False, index=True)
+    tgt_language_id = Column(Integer, ForeignKey("languages.id"), nullable=False, index=True)
+    source_text = Column(String, nullable=False)
+    source_text_norm = Column(String, nullable=False, index=True)
+
+    translated_text = Column(String, nullable=False)
+    provider = Column(String, default="mymemory", nullable=False)
+
+    hits = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "src_language_id",
+            "tgt_language_id",
+            "source_text_norm",
+            "provider",
+            name="uq_translation_cache_src_tgt_text_provider",
+        ),
+        Index(
+            "ix_translation_cache_src_tgt_text",
+            "src_language_id",
+            "tgt_language_id",
+            "source_text_norm",
+        ),
+    )
+
+
+class ExampleSentenceCache(Base):
+    __tablename__ = "example_sentence_cache"
+
+    id = Column(Integer, primary_key=True)
+
+    # query word/phrase (usually card.front)
+    src_language_id = Column(Integer, ForeignKey("languages.id"), nullable=False, index=True)
+    tgt_language_id = Column(Integer, ForeignKey("languages.id"), nullable=False, index=True)
+    query_text = Column(String, nullable=False)
+    query_text_norm = Column(String, nullable=False, index=True)
+
+    # store one "best" example (you can extend later to multiple)
+    example_text = Column(Text, nullable=False)
+    provider = Column(String, default="tatoeba", nullable=False)
+
+    hits = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "src_language_id",
+            "tgt_language_id",
+            "query_text_norm",
+            "provider",
+            name="uq_example_cache_src_tgt_query_provider",
+        ),
+        Index(
+            "ix_example_cache_src_tgt_query",
+            "src_language_id",
+            "tgt_language_id",
+            "query_text_norm",
+        ),
     )
