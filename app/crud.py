@@ -489,13 +489,14 @@ def create_card(
             example_sentence = auto_content.get_example_with_cache(
                 db, src_lang=src_lang, tgt_lang=tgt_lang, text_raw=front_clean
             )
-
+    back_clean = auto_content.clean_text(back)
+    example_clean = auto_content.clean_example(example_sentence)
     card = models.Card(
         deck_id=deck_id,
         front=front_clean,
         front_norm=front_norm,
-        back=(back or "").strip(),
-        example_sentence=example_sentence,
+        back=back_clean,
+        example_sentence=example_clean,
     )
 
     db.add(card)

@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 from typing import Optional
+from sqlalchemy.exc import IntegrityError
 
 import httpx
 from sqlalchemy.orm import Session
@@ -19,6 +20,18 @@ _SPACE_RE = re.compile(r"\s+", re.UNICODE)
 
 def norm(text: str) -> str:
     return _SPACE_RE.sub(" ", (text or "").strip()).lower()
+
+# keep meaning/case; just normalize whitespace
+def clean_text(text: str) -> str:
+    return _SPACE_RE.sub(" ", (text or "").strip())
+
+def clean_example(text: str) -> str:
+    # keep newline between src and tgt if present
+    text = (text or "").strip()
+    if "\n" in text:
+        a, b = text.split("\n", 1)
+        return f"{clean_text(a)}\n{clean_text(b)}".strip()
+    return clean_text(text)
 
 
 ISO2_TO_TATOEBA = {
@@ -133,12 +146,15 @@ def save_translation_cache(
         tgt_language_id=tgt_lang_id,
         source_text=text_raw,
         source_text_norm=norm(text_raw),
-        translated_text=translation,
+        translated_text=clean_text(translation),
         provider="mymemory",
         hits=0,
     )
     db.add(row)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
 
 
 def find_cached_example(db: Session, *, src_lang_id: int, tgt_lang_id: int, text_raw: str):
@@ -163,7 +179,7 @@ def save_example_cache(
         tgt_language_id=tgt_lang_id,
         query_text=text_raw,
         query_text_norm=norm(text_raw),
-        example_text=example_text,
+        example_text=clean_example(example_text),
         provider="tatoeba",
         hits=0,
     )
@@ -271,7 +287,7 @@ async def fetch_tatoeba_example_async(*, query: str, src_code: str, tgt_code: st
     return src_text or None
 
 
-async def get_preview_with_cache_async(db: Session, *, src_lang, tgt_lang, text_raw):
+async def get_preview_no_save_async(db: Session, *, src_lang, tgt_lang, text_raw):
     tr_cached = find_cached_translation(
         db, src_lang_id=src_lang.id, tgt_lang_id=tgt_lang.id, text_raw=text_raw
     )
@@ -279,33 +295,37 @@ async def get_preview_with_cache_async(db: Session, *, src_lang, tgt_lang, text_
         db, src_lang_id=src_lang.id, tgt_lang_id=tgt_lang.id, text_raw=text_raw
     )
 
+    # If both exist -> no HTTP
     if tr_cached is not None and ex_cached is not None:
-        return tr_cached, ex_cached
+        return tr_cached, ex_cached, True, True
 
-    tr_task = fetch_mymemory_translation_async(
-        text=text_raw, src_code=src_lang.code, tgt_code=tgt_lang.code
-    )
+    # Prepare tasks only for missing parts
+    tr_task = None
+    ex_task = None
+
+    if tr_cached is None and src_lang.code and tgt_lang.code:
+        tr_task = fetch_mymemory_translation_async(
+            text=text_raw, src_code=src_lang.code, tgt_code=tgt_lang.code
+        )
+
     src_code = _tatoeba_lang(src_lang.code or "")
     tgt_code = _tatoeba_lang(tgt_lang.code or "")
-    ex_task = fetch_tatoeba_example_async(query=text_raw, src_code=src_code, tgt_code=tgt_code)
+    if ex_cached is None and src_code and tgt_code:
+        ex_task = fetch_tatoeba_example_async(query=text_raw, src_code=src_code, tgt_code=tgt_code)
 
-    tr_new, ex_new = await asyncio.gather(tr_task, ex_task)
+    # Run in parallel, but only if tasks exist
+    tr_new = None
+    ex_new = None
 
-    if tr_new:
-        save_translation_cache(
-            db,
-            src_lang_id=src_lang.id,
-            tgt_lang_id=tgt_lang.id,
-            text_raw=text_raw,
-            translation=tr_new,
-        )
-    if ex_new:
-        save_example_cache(
-            db,
-            src_lang_id=src_lang.id,
-            tgt_lang_id=tgt_lang.id,
-            text_raw=text_raw,
-            example_text=ex_new,
-        )
+    if tr_task and ex_task:
+        tr_new, ex_new = await asyncio.gather(tr_task, ex_task)
+    elif tr_task:
+        tr_new = await tr_task
+    elif ex_task:
+        ex_new = await ex_task
 
-    return tr_new or tr_cached, ex_new or ex_cached
+    #do NOT save to DB here
+    tr_final = clean_text(tr_new) if tr_new else tr_cached
+    ex_final = clean_example(ex_new) if ex_new else ex_cached
+
+    return tr_final, ex_final, (tr_cached is not None), (ex_cached is not None)

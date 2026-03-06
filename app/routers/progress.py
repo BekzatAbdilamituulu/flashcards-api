@@ -182,9 +182,20 @@ def progress_summary(
         new_available = 0
         next_due = None
 
+    today_cards_done = dp.cards_done 
+    today_new_done = dp.new_done
     # totals
     total_cards = crud.count_total_cards(db, current_user.id, deck_id=deck_id)
     status_counts = crud.count_progress_statuses(db, current_user.id, deck_id=deck_id)
+
+    daily_card_target = int(getattr(current_user, "daily_card_target", 20) or 20)
+    daily_new_target = int(getattr(current_user, "daily_new_target", 7) or 7)
+
+    cards_remaining = max(daily_card_target - today_cards_done, 0)
+    new_remaining = max(daily_new_target - today_new_done, 0)
+
+    cards_goal_pct = min(today_cards_done / daily_card_target, 1.0) if daily_card_target > 0 else 1.0
+    new_goal_pct = min(today_new_done / daily_new_target, 1.0) if daily_new_target > 0 else 1.0
 
     return {
         "date": d,
@@ -192,12 +203,22 @@ def progress_summary(
         "today_reviews_done": dp.reviews_done,
         "today_new_done": dp.new_done,
         "today_added_cards": today_added,
+
+        "daily_card_target": daily_card_target,
+        "daily_new_target": daily_new_target,
+        "cards_remaining": cards_remaining,
+        "new_remaining": new_remaining,
+        "cards_goal_pct": cards_goal_pct,
+        "new_goal_pct": new_goal_pct,
+
         "current_streak": st["current_streak"],
         "best_streak": st["best_streak"],
         "streak_threshold": st["threshold"],
+
         "due_count": due_count,
         "new_available_count": new_available,
         "next_due_at": next_due,
+
         "total_cards": total_cards,
         "total_mastered": status_counts["mastered"],
         "total_learning": status_counts["learning"],

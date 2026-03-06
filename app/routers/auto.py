@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app import crud, models, schemas
 from app.database import get_db
 from app.deps import get_current_user
-from app.services.auto_content import get_preview_with_cache_async
+from app.services.auto_content import get_preview_no_save_async
 from app.services.inbox_service import resolve_language_pair
 
 router = APIRouter(prefix="/auto", tags=["auto"])
@@ -37,7 +37,7 @@ async def preview_auto(
     if not src_lang or not tgt_lang:
         raise HTTPException(status_code=422, detail="Invalid language ids")
 
-    tr, ex = await get_preview_with_cache_async(
+    tr, ex, tr_cached, ex_cached = await get_preview_no_save_async(
         db, src_lang=src_lang, tgt_lang=tgt_lang, text_raw=front
     )
 
@@ -50,7 +50,7 @@ async def preview_auto(
             "example": "tatoeba" if ex else None,
         },
         "cached": {
-            "translation": False,
-            "example": False,
+            "translation": tr_cached,
+            "example": ex_cached,
         },
     }

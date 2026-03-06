@@ -108,3 +108,24 @@ def set_default_pair(
     if not pair:
         raise HTTPException(status_code=404, detail="Pair not found")
     return pair
+
+@router.put("/me/goals", response_model=schemas.UserOut)
+def update_my_goals(
+    payload: schemas.UserGoalIn,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user = (
+        db.query(models.User)
+        .filter(models.User.id == current_user.id)
+        .first()
+    )
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.daily_card_target = payload.daily_card_target
+    user.daily_new_target = payload.daily_new_target
+
+    db.commit()
+    db.refresh(user)  
+    return user

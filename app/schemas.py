@@ -201,6 +201,10 @@ class UserLanguageDefaultsIn(BaseModel):
     default_source_language_id: int = Field(ge=1)
     default_target_language_id: int = Field(ge=1)
 
+class UserGoalIn(BaseModel):
+    daily_card_target: int = Field(ge=1, le=500)
+    daily_new_target: int = Field(ge=0, le=200)
+
 
 # ----------------- STUDY / PROGRESS -----------------
 class ProgressStatus(str, Enum):
@@ -299,6 +303,16 @@ class ProgressSummaryOut(BaseModel):
     today_reviews_done: int
     today_new_done: int
     today_added_cards: int
+
+    #Daily goals (targets)
+    daily_card_target: int
+    daily_new_target: int
+
+    #Daily goals progress (computed)
+    cards_remaining: int
+    new_remaining: int
+    cards_goal_pct: float
+    new_goal_pct: float
 
     # Streak (threshold-based)
     current_streak: int
