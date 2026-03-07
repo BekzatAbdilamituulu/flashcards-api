@@ -35,8 +35,11 @@ class CardOut(CardBase):
     id: int
     deck_id: int
     created_at: datetime
-    status: str = 'new'
+
     model_config = ConfigDict(from_attributes=True)
+
+class CardWithStatusOut(CardOut):
+    status: str = "new"
 
 
 class InboxWordIn(BaseModel):
@@ -48,6 +51,21 @@ class InboxWordIn(BaseModel):
     source_language_id: Optional[int] = None
     target_language_id: Optional[int] = None
 
+class ImportSelectedCardsIn(BaseModel):
+    card_ids: list[int]
+
+class ImportSelectedCardItemOut(BaseModel):
+    library_card_id: int
+    imported: bool
+    skipped: bool
+    reason: str | None = None
+    card: CardOut | None = None
+
+
+class ImportSelectedCardsOut(BaseModel):
+    results: list[ImportSelectedCardItemOut]
+    imported_count: int
+    skipped_count: int
 
 class InboxWordOut(BaseModel):
     deck_id: int
@@ -170,7 +188,7 @@ class LibraryDeckOut(BaseModel):
 
 
 class ImportCardIn(BaseModel):
-    target_deck_id: int = Field(ge=1)
+    pass
 
 
 class ImportCardOut(BaseModel):

@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.utils.time import bishkek_day_bounds, bishkek_today
-
+from .deps import is_admin_username
 
 from . import models, schemas
 
@@ -17,6 +17,15 @@ from . import models, schemas
 
 # ----------------- Users (Auth) -----------------
 
+def require_deck_access(db: Session, user_id: int, deck_id: int) -> models.DeckAccess:
+    row = (
+        db.query(models.DeckAccess)
+        .filter(models.DeckAccess.user_id == user_id, models.DeckAccess.deck_id == deck_id)
+        .first()
+    )
+    if not row:
+        raise PermissionError("No access to deck")
+    return row
 
 def get_user_by_username(db: Session, username: str) -> Optional[models.User]:
     return db.query(models.User).filter(models.User.username == username).first()
@@ -33,15 +42,35 @@ def create_user(db: Session, username: str, hashed_password: str) -> models.User
     db.refresh(user)
     return user
 
-def get_user_learning_pair(db: Session, user_id: int, pair_id: int):
-    return (
+def get_user_learning_pair(
+    db: Session,
+    user_id: int,
+    pair_id: int | None = None,
+) -> models.UserLearningPair:
+    if pair_id is not None:
+        pair = (
+            db.query(models.UserLearningPair)
+            .filter(
+                models.UserLearningPair.id == pair_id,
+                models.UserLearningPair.user_id == user_id,
+            )
+            .first()
+        )
+        if not pair:
+            raise ValueError("Learning pair not found")
+        return pair
+
+    pair = (
         db.query(models.UserLearningPair)
         .filter(
             models.UserLearningPair.user_id == user_id,
-            models.UserLearningPair.id == pair_id,
+            models.UserLearningPair.is_default == True,
         )
         .first()
     )
+    if not pair:
+        raise ValueError("Default learning pair not found")
+    return pair
 
 def get_user_learning_pair_by_langs(
     db: Session,
@@ -251,18 +280,6 @@ def delete_language(db: Session, language_id: int) -> bool:
     db.commit()
     return True
 
-
-def require_deck_access(db: Session, user_id: int, deck_id: int) -> models.DeckAccess:
-    row = (
-        db.query(models.DeckAccess)
-        .filter(models.DeckAccess.user_id == user_id, models.DeckAccess.deck_id == deck_id)
-        .first()
-    )
-    if not row:
-        raise ValueError("No access to deck")
-    return row
-
-
 def count_cards_in_deck(db: Session, deck_id: int) -> int:
     return db.query(models.Card).filter(models.Card.deck_id == deck_id).count()
 
@@ -272,20 +289,26 @@ def count_cards_in_deck(db: Session, deck_id: int) -> int:
 
 def list_library_decks(
     db: Session,
-    *,
-    source_language_id: int | None = None,
-    target_language_id: int | None = None,
+    user_id: int,
+    limit: int,
+    offset: int,
+    pair_id: int | None = None,
 ):
-    q = (
+    pair = get_user_learning_pair(db, user_id, pair_id)
+
+    base_q = (
         db.query(models.Deck)
-        .filter(models.Deck.deck_type == "library")
+        .filter(
+            models.Deck.deck_type == "library",
+            models.Deck.source_language_id == pair.source_language_id,
+            models.Deck.target_language_id == pair.target_language_id,
+        )
         .order_by(models.Deck.id.desc())
     )
-    if source_language_id is not None:
-        q = q.filter(models.Deck.source_language_id == source_language_id)
-    if target_language_id is not None:
-        q = q.filter(models.Deck.target_language_id == target_language_id)
-    return q.all()
+
+    total = base_q.count()
+    items = base_q.offset(offset).limit(limit).all()
+    return items, total
 
 
 def list_library_deck_cards(db: Session, deck_id: int, limit: int, offset: int):
@@ -304,43 +327,124 @@ def list_library_deck_cards(db: Session, deck_id: int, limit: int, offset: int):
     items = base_q.offset(offset).limit(limit).all()
     return items, total
 
-
-def import_library_card_to_user_deck(
+def import_library_card_to_main_deck(
     db: Session,
-    *,
     user_id: int,
     library_card_id: int,
-    target_deck_id: int,
 ):
-    """Copy ONE card from a library deck into a user's deck.
-
-    - Library card must belong to a deck with deck_type == "library"
-    - User must have OWNER/EDITOR access to target_deck
-    - Duplicates are skipped based on (deck_id, front_norm)
-    """
-
-    access = require_deck_access(db, user_id, target_deck_id)
-    if access.role not in (models.DeckRole.OWNER, models.DeckRole.EDITOR):
-        raise PermissionError("No permission to add cards to target deck")
-
     lib_card = (
         db.query(models.Card)
         .join(models.Deck, models.Deck.id == models.Card.deck_id)
-        .filter(models.Card.id == library_card_id, models.Deck.deck_type == "library")
+        .filter(models.Card.id == library_card_id)
         .first()
     )
     if not lib_card:
         raise LookupError("Library card not found")
 
-    exists = (
-        db.query(models.Card.id)
+    if lib_card.deck.deck_type != "library":
+        raise ValueError("Card is not from a library deck")
+
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise LookupError("User not found")
+
+    main_deck = get_or_create_main_deck_for_pair(
+        db,
+        user=user,
+        source_language_id=lib_card.deck.source_language_id,
+        target_language_id=lib_card.deck.target_language_id,
+    )
+
+    db.flush()
+
+    return import_library_card_to_user_deck(
+        db,
+        user_id=user_id,
+        library_card_id=library_card_id,
+        target_deck_id=main_deck.id,
+    )
+
+def import_selected_library_cards_to_main_deck(
+    db: Session,
+    user_id: int,
+    library_deck_id: int,
+    card_ids: list[int],
+):
+    library_deck = db.query(models.Deck).filter(models.Deck.id == library_deck_id).first()
+    if not library_deck:
+        raise LookupError("Library deck not found")
+
+    if library_deck.deck_type != "library":
+        raise ValueError("Deck is not a library deck")
+
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise LookupError("User not found")
+
+    main_deck = get_or_create_main_deck_for_pair(
+        db,
+        user=user,
+        source_language_id=library_deck.source_language_id,
+        target_language_id=library_deck.target_language_id,
+    )
+
+    db.flush()
+
+    return import_selected_library_cards_to_user_deck(
+        db,
+        user_id=user_id,
+        library_deck_id=library_deck_id,
+        target_deck_id=main_deck.id,
+        card_ids=card_ids,
+    )
+
+def import_library_card_to_user_deck(
+    db: Session,
+    user_id: int,
+    library_card_id: int,
+    target_deck_id: int,
+):
+    lib_card = (
+        db.query(models.Card)
+        .join(models.Deck, models.Deck.id == models.Card.deck_id)
+        .filter(models.Card.id == library_card_id)
+        .first()
+    )
+    if not lib_card:
+        raise LookupError("Library card not found")
+
+    if lib_card.deck.deck_type != "library":
+        raise ValueError("Card is not from a library deck")
+
+    access = require_deck_access(db, user_id, target_deck_id)
+    if access.role not in (models.DeckRole.OWNER, models.DeckRole.EDITOR):
+        raise PermissionError("No permission to add cards to target deck")
+
+    target_deck = access.deck
+    if target_deck.deck_type not in ("users", "main"):
+        raise ValueError("Cards can be imported only into user study decks")
+
+    if (
+        lib_card.deck.source_language_id != target_deck.source_language_id
+        or lib_card.deck.target_language_id != target_deck.target_language_id
+    ):
+        raise ValueError("Library card language pair does not match target deck")
+
+    existing = (
+        db.query(models.Card)
         .filter(
-            models.Card.deck_id == target_deck_id, models.Card.front_norm == lib_card.front_norm
+            models.Card.deck_id == target_deck_id,
+            models.Card.front_norm == lib_card.front_norm,
         )
         .first()
     )
-    if exists:
-        return {"imported": False, "skipped": True, "reason": "duplicate", "card": None}
+    if existing:
+        return {
+            "imported": False,
+            "skipped": True,
+            "reason": "duplicate",
+            "card": existing,
+        }
 
     new_card = models.Card(
         deck_id=target_deck_id,
@@ -353,8 +457,89 @@ def import_library_card_to_user_deck(
     db.commit()
     db.refresh(new_card)
 
-    return {"imported": True, "skipped": False, "reason": None, "card": new_card}
+    return {
+        "imported": True,
+        "skipped": False,
+        "reason": None,
+        "card": new_card,
+    }
 
+def import_selected_library_cards_to_user_deck(
+    db: Session,
+    user_id: int,
+    library_deck_id: int,
+    target_deck_id: int,
+    card_ids: list[int],
+):
+    deck = db.query(models.Deck).filter(models.Deck.id == library_deck_id).first()
+    if not deck:
+        raise LookupError("Library deck not found")
+    if deck.deck_type != "library":
+        raise ValueError("Deck is not a library deck")
+
+    results = []
+    imported_count = 0
+    skipped_count = 0
+
+    for card_id in card_ids:
+        lib_card = (
+            db.query(models.Card)
+            .filter(
+                models.Card.id == card_id,
+                models.Card.deck_id == library_deck_id,
+            )
+            .first()
+        )
+        if not lib_card:
+            results.append(
+                {
+                    "library_card_id": card_id,
+                    "imported": False,
+                    "skipped": True,
+                    "reason": "card_not_in_library_deck",
+                    "card": None,
+                }
+            )
+            skipped_count += 1
+            continue
+
+        try:
+            out = import_library_card_to_user_deck(
+                db,
+                user_id=user_id,
+                library_card_id=card_id,
+                target_deck_id=target_deck_id,
+            )
+            results.append(
+                {
+                    "library_card_id": card_id,
+                    "imported": out["imported"],
+                    "skipped": out["skipped"],
+                    "reason": out.get("reason"),
+                    "card": out.get("card"),
+                }
+            )
+            if out["imported"]:
+                imported_count += 1
+            else:
+                skipped_count += 1
+        except (ValueError, PermissionError, LookupError) as e:
+            results.append(
+                {
+                    "library_card_id": card_id,
+                    "imported": False,
+                    "skipped": True,
+                    "reason": str(e),
+                    "card": None,
+                }
+            )
+            skipped_count += 1
+
+    return {
+        "results": results,
+        "imported_count": imported_count,
+        "skipped_count": skipped_count,
+    }
 
 # ----------------- Decks -----------------
 
@@ -470,17 +655,7 @@ def get_user_decks(
     )
 
     if pair_id is not None:
-        pair = (
-            db.query(models.UserLearningPair)
-            .filter(
-                models.UserLearningPair.user_id == user_id,
-                models.UserLearningPair.id == pair_id,
-            )
-            .first()
-        )
-        if not pair:
-            raise ValueError("Learning pair not found")
-
+        pair = get_user_learning_pair(db, user_id, pair_id)
         base_q = base_q.filter(
             models.Deck.source_language_id == pair.source_language_id,
             models.Deck.target_language_id == pair.target_language_id,
@@ -528,8 +703,12 @@ def create_card(
     deck = access.deck
     if access.role not in (models.DeckRole.OWNER, models.DeckRole.EDITOR):
         raise ValueError("No permission to edit deck")
-    if access.deck.deck_type == "library":
-        raise PermissionError("Library decks are read-only")
+    
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    is_admin = user is not None and is_admin_username(user.username)
+
+    if deck.deck_type == 'library' and not is_admin:
+        raise PermissionError("Library decks are read only")
 
     front_clean = (front or "").strip()
     if not front_clean:
@@ -597,10 +776,16 @@ def update_card(
     example_sentence: Optional[str] = None,
 ) -> models.Card:
     access = require_deck_access(db, user_id, deck_id)
+    deck = access.deck
     if access.role not in (models.DeckRole.OWNER, models.DeckRole.EDITOR):
         raise PermissionError("No permission to edit deck")
-    if access.deck.deck_type == "library":
-        raise PermissionError("Library decks are read-only")
+    
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    is_admin = user is not None and is_admin_username(user.username)
+
+    if deck.deck_type == 'library' and not is_admin:
+        raise PermissionError('Library decks are read-only')
+
     card = (
         db.query(models.Card)
         .filter(models.Card.id == card_id, models.Card.deck_id == deck_id)
@@ -636,10 +821,15 @@ def update_card(
 
 def delete_card(db: Session, deck_id: int, card_id: int, user_id: int) -> bool:
     access = require_deck_access(db, user_id, deck_id)
+    deck = access.deck
     if access.role not in (models.DeckRole.OWNER, models.DeckRole.EDITOR):
         raise PermissionError("No permission to edit deck")
-    if access.deck.deck_type == "library":
-        raise PermissionError("Library decks are read-only")
+    
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    is_admin = user is not None and is_admin_username(user.username)
+
+    if deck.deck_type =='library' and not is_admin:
+        raise PermissionError('Library decks are read-only')
 
     card = (
         db.query(models.Card)

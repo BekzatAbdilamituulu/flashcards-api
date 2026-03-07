@@ -10,33 +10,37 @@ from ..deps import get_current_user, require_admin
 router = APIRouter(prefix="/library", tags=["library"])
 
 
-@router.get("/decks", response_model=list[schemas.LibraryDeckOut])
-def library_decks(
-    source_language_id: int | None = Query(default=None),
-    target_language_id: int | None = Query(default=None),
+@router.get("/decks", response_model=schemas.Page[schemas.DeckOut])
+def list_library_decks(
+    limit: int = 20,
+    offset: int = 0,
+    pair_id: int | None = None,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    decks = crud.list_library_decks(
-        db,
-        source_language_id=source_language_id,
-        target_language_id=target_language_id,
-    )
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
 
-    out: list[dict] = []
-    for d in decks:
-        out.append(
-            {
-                "id": d.id,
-                "name": d.name,
-                "source_language_id": d.source_language_id,
-                "target_language_id": d.target_language_id,
-                "deck_type": d.deck_type,
-                "cards_count": crud.count_cards_in_deck(db, d.id),
-            }
+    try:
+        items, total = crud.list_library_decks(
+            db,
+            current_user.id,
+            limit=limit,
+            offset=offset,
+            pair_id=pair_id,
         )
-    return out
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
+    return {
+        "items": items,
+        "meta": {
+            "limit": limit,
+            "offset": offset,
+            "total": total,
+            "has_more": offset + len(items) < total,
+        },
+    }
 
 @router.get("/decks/{deck_id}/cards", response_model=schemas.Page[schemas.CardOut])
 def library_deck_cards(
@@ -67,11 +71,10 @@ def import_library_card(
     current_user=Depends(get_current_user),
 ):
     try:
-        return crud.import_library_card_to_user_deck(
+        return crud.import_library_card_to_main_deck(
             db,
             user_id=current_user.id,
             library_card_id=card_id,
-            target_deck_id=payload.target_deck_id,
         )
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -80,6 +83,29 @@ def import_library_card(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@router.post(
+    "/decks/{deck_id}/import-selected",
+    response_model=schemas.ImportSelectedCardsOut,
+)
+def import_selected_cards(
+    deck_id: int,
+    payload: schemas.ImportSelectedCardsIn,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    try:
+        return crud.import_selected_library_cards_to_main_deck(
+            db,
+            user_id=current_user.id,
+            library_deck_id=deck_id,
+            card_ids=payload.card_ids
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/admin/decks", dependencies=[Depends(require_admin)], response_model=schemas.DeckOut)
 def admin_create_library_deck(
@@ -98,8 +124,8 @@ def admin_create_library_deck(
         owner_id=current_user.id,
         source_language_id=payload.source_language_id,
         target_language_id=payload.target_language_id,
+        deck_type="library",
     )
-    deck.deck_type = "library"
     deck.is_public = True
     db.commit()
     db.refresh(deck)

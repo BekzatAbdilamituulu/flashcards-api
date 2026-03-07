@@ -148,7 +148,7 @@ def delete_deck(deck_id: int, db: Session = Depends(get_db), user=Depends(get_cu
     return
 
 
-@router.get("/{deck_id}/cards", response_model=schemas.Page[schemas.CardOut])
+@router.get("/{deck_id}/cards", response_model=schemas.Page[schemas.CardWithStatusOut])
 def list_cards(
     deck_id: int,
     limit: int = 50,
@@ -158,15 +158,18 @@ def list_cards(
 ):
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
-
-    items, total = crud.list_deck_cards(
-        db,
-        deck_id,
-        user.id,
-        limit=limit,
-        offset=offset,
-    )
-
+    try:
+        items, total = crud.list_deck_cards(
+            db,
+            deck_id,
+            user.id,
+            limit=limit,
+            offset=offset,
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     return {
         "items": items,
         "meta": {
@@ -196,8 +199,8 @@ def create_card(
             back=payload.back,
             example_sentence=payload.example_sentence,
         )
-    except PermissionError:
-        raise HTTPException(status_code=403, detail="No permission to edit deck")
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except LookupError:
         raise HTTPException(status_code=404, detail="Deck not found")
     except ValueError as e:

@@ -190,6 +190,8 @@ class Card(Base):
     deck_id = Column(Integer, ForeignKey("decks.id"), nullable=False, index=True)
     deck = relationship("Deck", back_populates="cards")
 
+    library_source_card_id = Column(Integer, ForeignKey("cards.id"), nullable=True, index=True)
+
     __table_args__ = (UniqueConstraint("deck_id", "front_norm", name="uq_cards_deck_front_norm"),)
 
 

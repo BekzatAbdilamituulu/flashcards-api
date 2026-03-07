@@ -42,6 +42,10 @@ def require_admin(current_user=Depends(get_current_user)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
     return current_user
 
+def is_admin_username(username: str) -> bool:
+    raw = os.getenv("ADMIN_USERNAMES", "admin")
+    admins = {u.strip() for u in raw.split(",") if u.strip()}
+    return username in admins
 
 def pagination_params(
     limit: int = Query(20, ge=1, le=200),
