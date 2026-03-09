@@ -1,0 +1,9 @@
+-r requirements.txt
+
+black==26.1.0
+coverage==7.13.4
+isort==8.0.0
+pytest==9.0.2
+pytest-cov==7.0.0
+ruff==0.15.4
+virtualenv==21.1.0

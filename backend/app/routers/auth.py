@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from ..core.rate_limit import limiter
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
@@ -20,7 +21,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=schemas.TokenOut, status_code=201)
-def register(payload: schemas.RegisterIn, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def register(
+    request: Request,
+    payload: schemas.RegisterIn,
+    db: Session = Depends(get_db),
+):
     existing = crud.get_user_by_username(db, payload.username)
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
@@ -44,7 +50,8 @@ def register(payload: schemas.RegisterIn, db: Session = Depends(get_db)):
 
 
 @router.post("/login-json", response_model=schemas.TokenOut)
-def login_json(payload: schemas.LoginIn, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login_json(request: Request, payload: schemas.LoginIn, db: Session = Depends(get_db)):
     user = crud.get_user_by_username(db, username=payload.username)
     if not user:
         raise HTTPException(status_code=400, detail="Incorrect username or password")
@@ -67,9 +74,10 @@ def login_json(payload: schemas.LoginIn, db: Session = Depends(get_db)):
 
     return schemas.TokenOut(access_token=access, refresh_token=refresh)
 
-
+1
 @router.post("/refresh", response_model=schemas.TokenOut)
-def refresh_tokens(payload: schemas.RefreshIn, db: Session = Depends(get_db)):
+@limiter.limit("20/minute")
+def refresh_tokens(request: Request, payload: schemas.RefreshIn, db: Session = Depends(get_db)):
     token = payload.refresh_token
 
     try:

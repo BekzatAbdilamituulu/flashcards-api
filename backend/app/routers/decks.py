@@ -6,6 +6,9 @@ from sqlalchemy.orm import Session
 from .. import crud, schemas, models
 from ..database import get_db
 from ..deps import get_current_user
+from app.services.deck_service import require_readable_deck, require_users_deck
+from app.services.pair_service import resolve_user_pair_by_payload
+
 
 router = APIRouter(prefix="/decks", tags=["decks"])
 
@@ -49,39 +52,16 @@ def create_user_deck(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    if payload.deck_type != "users":
-        raise HTTPException(status_code=400, detail="Only 'users' decks can be created manually")
-
-    pair = None
-
-    if payload.pair_id is not None:
-        pair = crud.get_user_learning_pair(db, user.id, payload.pair_id)
-        if not pair:
-            raise HTTPException(status_code=404, detail="Learning pair not found")
-
-    elif payload.source_language_id is not None or payload.target_language_id is not None:
-        if payload.source_language_id is None or payload.target_language_id is None:
-            raise HTTPException(
-                status_code=422,
-                detail="Provide both source_language_id and target_language_id, or neither",
-            )
-
-        if payload.source_language_id == payload.target_language_id:
-            raise HTTPException(status_code=422, detail="Source and target must differ")
-
-        pair = crud.get_user_learning_pair_by_langs(
+    try:
+        pair = resolve_user_pair_by_payload(
             db,
             user.id,
-            payload.source_language_id,
-            payload.target_language_id,
+            pair_id=payload.pair_id,
+            source_language_id=payload.source_language_id,
+            target_language_id=payload.target_language_id,
         )
-        if not pair:
-            raise HTTPException(status_code=404, detail="Learning pair not found")
-
-    else:
-        pair = crud.get_default_learning_pair(db, user.id)
-        if not pair:
-            raise HTTPException(status_code=400, detail="No default learning pair set")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     return crud.create_deck(
         db,
@@ -89,16 +69,20 @@ def create_user_deck(
         owner_id=user.id,
         source_language_id=pair.source_language_id,
         target_language_id=pair.target_language_id,
-        deck_type="users",
+        deck_type=models.DeckType.USERS,
     )
 
 
 @router.get("/{deck_id}", response_model=schemas.DeckOut)
 def get_deck(deck_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    deck = crud.get_deck(db, deck_id, user.id)
-    if not deck:
-        raise HTTPException(status_code=404, detail="Deck not found or no access")
-    return deck
+    try:
+        return require_readable_deck(
+            db,
+            user_id=user.id,
+            deck_id=deck_id,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.patch("/{deck_id}", response_model=schemas.DeckOut)
@@ -108,11 +92,15 @@ def patch_deck(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    deck = crud.get_deck(db, deck_id, user.id)
-    if not deck:
-        raise HTTPException(status_code=404, detail="Deck not found or no access")
-
-    if deck.deck_type != "users":
+    try:
+        require_users_deck(
+            db,
+            user_id=user.id,
+            deck_id=deck_id,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError:
         raise HTTPException(status_code=400, detail="Only 'users' decks can be updated")
 
     try:
@@ -133,12 +121,16 @@ def patch_deck(
 
 @router.delete("/{deck_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_deck(deck_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    deck = crud.get_deck(db, deck_id, user.id)
-    if not deck:
-        raise HTTPException(status_code=404, detail="Deck not found or no access")
-
-    # Only users decks can be deleted by user
-    if deck.deck_type != "users":
+    try:
+        require_users_deck(
+            db,
+            user_id=user.id,
+            deck_id=deck_id,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError:
+        # Preserve existing behavior for this endpoint.
         raise HTTPException(status_code=403, detail="You cannot delete this deck type")
 
     ok = crud.delete_deck(db, deck_id, user.id)

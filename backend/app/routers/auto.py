@@ -5,7 +5,7 @@ from app import crud, models, schemas
 from app.database import get_db
 from app.deps import get_current_user
 from app.services.auto_content import get_preview_no_save_async
-from app.services.inbox_service import resolve_language_pair
+from app.services.pair_service import resolve_pair_for_user
 
 router = APIRouter(prefix="/auto", tags=["auto"])
 
@@ -20,11 +20,13 @@ async def preview_auto(
         if not crud.user_has_access_to_deck(db, current_user.id, payload.deck_id):
             raise HTTPException(status_code=403, detail="No access to deck")
 
-    src_id, tgt_id = resolve_language_pair(
+    pair = resolve_pair_for_user(
         db,
-        user=current_user,
+        user_id=current_user.id,
         source_language_id=payload.source_language_id,
         target_language_id=payload.target_language_id,
+        auto_create_by_langs=True,
+        use_default_if_missing=True,
     )
 
     front = (payload.front or "").strip()
@@ -32,8 +34,16 @@ async def preview_auto(
         raise HTTPException(status_code=422, detail="front is required")
 
     # load Language objects
-    src_lang = db.query(models.Language).filter(models.Language.id == src_id).first()
-    tgt_lang = db.query(models.Language).filter(models.Language.id == tgt_id).first()
+    src_lang = (
+        db.query(models.Language)
+        .filter(models.Language.id == pair.source_language_id)
+        .first()
+    )
+    tgt_lang = (
+        db.query(models.Language)
+        .filter(models.Language.id == pair.target_language_id)
+        .first()
+    )
     if not src_lang or not tgt_lang:
         raise HTTPException(status_code=422, detail="Invalid language ids")
 

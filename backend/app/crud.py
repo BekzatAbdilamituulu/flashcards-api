@@ -137,7 +137,7 @@ def get_or_create_main_deck_for_pair(
         db.query(models.Deck)
         .filter(
             models.Deck.owner_id == user.id,
-            models.Deck.deck_type == "main",
+            models.Deck.deck_type == models.DeckType.MAIN,
             models.Deck.source_language_id == source_language_id,
             models.Deck.target_language_id == target_language_id,
         )
@@ -150,7 +150,7 @@ def get_or_create_main_deck_for_pair(
     deck = models.Deck(
         name="Main Deck",
         owner_id=user.id,
-        deck_type="main",
+        deck_type=models.DeckType.MAIN,
         source_language_id=source_language_id,
         target_language_id=target_language_id,
     )
@@ -299,7 +299,7 @@ def list_library_decks(
     base_q = (
         db.query(models.Deck)
         .filter(
-            models.Deck.deck_type == "library",
+            models.Deck.deck_type == models.DeckType.LIBRARY,
             models.Deck.source_language_id == pair.source_language_id,
             models.Deck.target_language_id == pair.target_language_id,
         )
@@ -310,11 +310,32 @@ def list_library_decks(
     items = base_q.offset(offset).limit(limit).all()
     return items, total
 
+def get_library_deck_for_import(db: Session, library_deck_id: int) -> models.Deck | None:
+    return (
+        db.query(models.Deck)
+        .filter(
+            models.Deck.id == library_deck_id,
+            models.Deck.deck_type == models.DeckType.LIBRARY,
+        )
+        .first()
+    )
+
+
+def get_card_for_library_import(db: Session, library_card_id: int) -> models.Card | None:
+    return (
+        db.query(models.Card)
+        .join(models.Deck, models.Deck.id == models.Card.deck_id)
+        .filter(
+            models.Card.id == library_card_id,
+            models.Deck.deck_type == models.DeckType.LIBRARY,
+        )
+        .first()
+    )
 
 def list_library_deck_cards(db: Session, deck_id: int, limit: int, offset: int):
     deck = (
         db.query(models.Deck)
-        .filter(models.Deck.id == deck_id, models.Deck.deck_type == "library")
+        .filter(models.Deck.id == deck_id, models.Deck.deck_type == models.DeckType.LIBRARY)
         .first()
     )
     if not deck:
@@ -327,76 +348,6 @@ def list_library_deck_cards(db: Session, deck_id: int, limit: int, offset: int):
     items = base_q.offset(offset).limit(limit).all()
     return items, total
 
-def import_library_card_to_main_deck(
-    db: Session,
-    user_id: int,
-    library_card_id: int,
-):
-    lib_card = (
-        db.query(models.Card)
-        .join(models.Deck, models.Deck.id == models.Card.deck_id)
-        .filter(models.Card.id == library_card_id)
-        .first()
-    )
-    if not lib_card:
-        raise LookupError("Library card not found")
-
-    if lib_card.deck.deck_type != "library":
-        raise ValueError("Card is not from a library deck")
-
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not user:
-        raise LookupError("User not found")
-
-    main_deck = get_or_create_main_deck_for_pair(
-        db,
-        user=user,
-        source_language_id=lib_card.deck.source_language_id,
-        target_language_id=lib_card.deck.target_language_id,
-    )
-
-    db.flush()
-
-    return import_library_card_to_user_deck(
-        db,
-        user_id=user_id,
-        library_card_id=library_card_id,
-        target_deck_id=main_deck.id,
-    )
-
-def import_selected_library_cards_to_main_deck(
-    db: Session,
-    user_id: int,
-    library_deck_id: int,
-    card_ids: list[int],
-):
-    library_deck = db.query(models.Deck).filter(models.Deck.id == library_deck_id).first()
-    if not library_deck:
-        raise LookupError("Library deck not found")
-
-    if library_deck.deck_type != "library":
-        raise ValueError("Deck is not a library deck")
-
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not user:
-        raise LookupError("User not found")
-
-    main_deck = get_or_create_main_deck_for_pair(
-        db,
-        user=user,
-        source_language_id=library_deck.source_language_id,
-        target_language_id=library_deck.target_language_id,
-    )
-
-    db.flush()
-
-    return import_selected_library_cards_to_user_deck(
-        db,
-        user_id=user_id,
-        library_deck_id=library_deck_id,
-        target_deck_id=main_deck.id,
-        card_ids=card_ids,
-    )
 
 def import_library_card_to_user_deck(
     db: Session,
@@ -413,7 +364,7 @@ def import_library_card_to_user_deck(
     if not lib_card:
         raise LookupError("Library card not found")
 
-    if lib_card.deck.deck_type != "library":
+    if lib_card.deck.deck_type != models.DeckType.LIBRARY:
         raise ValueError("Card is not from a library deck")
 
     access = require_deck_access(db, user_id, target_deck_id)
@@ -421,7 +372,7 @@ def import_library_card_to_user_deck(
         raise PermissionError("No permission to add cards to target deck")
 
     target_deck = access.deck
-    if target_deck.deck_type not in ("users", "main"):
+    if target_deck.deck_type not in (models.DeckType.USERS, models.DeckType.MAIN):
         raise ValueError("Cards can be imported only into user study decks")
 
     if (
@@ -474,7 +425,7 @@ def import_selected_library_cards_to_user_deck(
     deck = db.query(models.Deck).filter(models.Deck.id == library_deck_id).first()
     if not deck:
         raise LookupError("Library deck not found")
-    if deck.deck_type != "library":
+    if deck.deck_type != models.DeckType.LIBRARY:
         raise ValueError("Deck is not a library deck")
 
     results = []
@@ -551,7 +502,7 @@ def create_deck(
     source_language_id: int,
     target_language_id: int,
     *,
-    deck_type: str = "users",
+    deck_type: models.DeckType = models.DeckType.USERS
 ) -> models.Deck:
     deck = models.Deck(
         name=name,
@@ -592,7 +543,7 @@ def update_deck(
         raise LookupError("Deck not found")
 
     # 🔒 restriction
-    if deck.deck_type != "users":
+    if deck.deck_type != models.DeckType.USERS:
         raise PermissionError("Only 'users' decks can be updated")
 
     if name is not None:
@@ -623,7 +574,7 @@ def delete_deck(db: Session, deck_id: int, user_id: int) -> bool:
         return False
 
     # Only users decks are deletable by the owner
-    if deck.deck_type != "users":
+    if deck.deck_type != models.DeckType.USERS:
         raise PermissionError("Only 'users' decks can be deleted")
 
     db.delete(deck)
@@ -702,12 +653,12 @@ def create_card(
     access = require_deck_access(db, user_id, deck_id)
     deck = access.deck
     if access.role not in (models.DeckRole.OWNER, models.DeckRole.EDITOR):
-        raise ValueError("No permission to edit deck")
+        raise PermissionError("No permission to edit deck")
     
     user = db.query(models.User).filter(models.User.id == user_id).first()
     is_admin = user is not None and is_admin_username(user.username)
 
-    if deck.deck_type == 'library' and not is_admin:
+    if deck.deck_type == models.DeckType.LIBRARY and not is_admin:
         raise PermissionError("Library decks are read only")
 
     front_clean = (front or "").strip()
@@ -783,7 +734,7 @@ def update_card(
     user = db.query(models.User).filter(models.User.id == user_id).first()
     is_admin = user is not None and is_admin_username(user.username)
 
-    if deck.deck_type == 'library' and not is_admin:
+    if deck.deck_type == models.DeckType.LIBRARY and not is_admin:
         raise PermissionError('Library decks are read-only')
 
     card = (
@@ -828,7 +779,7 @@ def delete_card(db: Session, deck_id: int, card_id: int, user_id: int) -> bool:
     user = db.query(models.User).filter(models.User.id == user_id).first()
     is_admin = user is not None and is_admin_username(user.username)
 
-    if deck.deck_type =='library' and not is_admin:
+    if deck.deck_type == models.DeckType.LIBRARY and not is_admin:
         raise PermissionError('Library decks are read-only')
 
     card = (
@@ -885,7 +836,7 @@ def list_deck_cards(
     items = []
     for card in cards:
         progress = progress_by_card_id.get(card.id)
-        status = progress.status if progress and progress.status else "new"
+        status = progress.status if progress and progress.status else models.ProgressStatus.NEW
 
         item = schemas.CardOut.model_validate(card).model_dump()
         item["status"] = status
@@ -961,7 +912,7 @@ def reset_card_progress(
     )
 
     if progress:
-        progress.status = "new"
+        progress.status = models.ProgressStatus.NEW
         progress.due_at = None
         progress.last_reviewed_at = None
 
@@ -1019,7 +970,7 @@ def get_due_reviews(
         .filter(
             models.UserCardProgress.user_id == user_id,
             models.Card.deck_id == deck_id,
-            models.UserCardProgress.status == "learning",
+            models.UserCardProgress.status == models.ProgressStatus.LEARNING,
             models.UserCardProgress.due_at.isnot(None),
             models.UserCardProgress.due_at <= now,
         )
@@ -1057,7 +1008,7 @@ def get_new_cards(
             or_(
                 models.UserCardProgress.id.is_(None),
                 and_(
-                    models.UserCardProgress.status == "new",
+                    models.UserCardProgress.status == models.ProgressStatus.NEW,
                     or_(
                         models.UserCardProgress.due_at.is_(None),
                         models.UserCardProgress.due_at <= now,
@@ -1112,6 +1063,7 @@ def count_cards_created_on_day(
     )
 
     if deck_id is not None:
+        require_deck_access(db, user_id, deck_id)
         q = q.filter(models.Card.deck_id == deck_id)
     elif pair_id is not None:
         pair = (
@@ -1304,7 +1256,7 @@ def count_due_reviews(
         .filter(
             models.DeckAccess.user_id == user_id,
             models.UserCardProgress.user_id == user_id,
-            models.UserCardProgress.status == "learning",
+            models.UserCardProgress.status == models.ProgressStatus.LEARNING,
             models.UserCardProgress.due_at.isnot(None),
             models.UserCardProgress.due_at <= now,
         )
@@ -1356,7 +1308,7 @@ def count_new_available(
             or_(
                 models.UserCardProgress.id.is_(None),
                 and_(
-                    models.UserCardProgress.status == "new",
+                    models.UserCardProgress.status == models.ProgressStatus.NEW,
                     or_(
                         models.UserCardProgress.due_at.is_(None),
                         models.UserCardProgress.due_at <= now,
@@ -1402,7 +1354,7 @@ def get_next_due_at(
         .filter(
             models.DeckAccess.user_id == user_id,
             models.UserCardProgress.user_id == user_id,
-            models.UserCardProgress.status == "learning",
+            models.UserCardProgress.status == models.ProgressStatus.LEARNING,
             models.UserCardProgress.due_at.isnot(None),
         )
     )
@@ -1574,9 +1526,11 @@ def count_progress_statuses(
     rows = q.group_by(models.UserCardProgress.status).all()
 
     counts = {"mastered": 0, "learning": 0, "new": 0}
+
     for status, c in rows:
-        if status in counts:
-            counts[status] = int(c)
+        key = status.value if hasattr(status, "value") else str(status)
+        if key in counts:
+            counts[key] = int(c)
 
     # new cards = cards without any progress row
     q2 = (

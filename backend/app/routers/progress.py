@@ -10,6 +10,8 @@ from ..database import get_db
 from ..deps import get_current_user
 from ..utils.dates import month_bounds
 from ..utils.time import bishkek_today
+from app.services.deck_service import require_readable_deck, resolve_main_deck_by_pair_or_deck
+from app.services.progress_service import build_progress_summary
 
 router = APIRouter(prefix="/progress", tags=["progress"])
 
@@ -57,43 +59,13 @@ def today_added(
     db: Session = Depends(get_db),
 ):
     d = bishkek_today()
-
-    # If deck_id is provided, validate access + enforce main deck
-    if deck_id is not None:
-        deck = crud.get_deck(db, deck_id, current_user.id)
-        if not deck:
-            raise HTTPException(status_code=404, detail="Deck not found or no access")
-        if deck.deck_type != "main":
-            raise HTTPException(status_code=400, detail="Only main deck is allowed for progress")
-
-    # If deck_id is not provided, resolve it from pair
-    if deck_id is None:
-        if pair_id is None:
-            pair = crud.get_default_learning_pair(db, current_user.id)
-            if not pair:
-                raise HTTPException(status_code=400, detail="No default learning pair set")
-            pair_id = pair.id
-        else:
-            pair = (
-                db.query(models.UserLearningPair)
-                .filter(
-                    models.UserLearningPair.user_id == current_user.id,
-                    models.UserLearningPair.id == pair_id,
-                )
-                .first()
-            )
-            if not pair:
-                raise HTTPException(status_code=404, detail="Learning pair not found")
-
-        deck = crud.get_or_create_main_deck_for_pair(
-            db,
-            current_user,
-            source_language_id=pair.source_language_id,
-            target_language_id=pair.target_language_id,
-        )
-        deck_id = deck.id
-
-    count = crud.count_cards_created_on_day(db, current_user.id, d, deck_id=deck_id)
+    deck = resolve_main_deck_by_pair_or_deck(
+        db,
+        user_id=current_user.id,
+        deck_id=deck_id,
+        pair_id=pair_id,
+    )
+    count = crud.count_cards_created_on_day(db, current_user.id, d, deck_id=deck.id)
     return {"date": d, "count": count}
 
 
@@ -180,92 +152,14 @@ def progress_summary(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    d = bishkek_today()
-
-    # today progress row
-    if pair_id is None:
-        pair = crud.get_default_learning_pair(db, current_user.id)
-        if not pair:
-            raise HTTPException(status_code=400, detail="No default learning pair set")
-        pair_id = pair.id
-    else:
-        pair = (
-            db.query(models.UserLearningPair)
-            .filter(
-                models.UserLearningPair.user_id == current_user.id,
-                models.UserLearningPair.id == pair_id,
-            )
-            .first()
-        )
-        if not pair:
-            raise HTTPException(status_code=404, detail="Learning pair not found")
-
-    dp = crud.get_daily_progress_for_day(db, current_user.id, pair_id, d)
-
-    # today created cards
-    today_added = crud.count_cards_created_on_day(db, current_user.id, d, deck_id=deck_id, pair_id=pair_id)
-
-    # streak
-    st = crud.get_streak(db, current_user.id, pair_id, threshold=streak_threshold)
-
-    # study queue info (filtered by deck if provided)
-    # If deck_id is None, you can either:
-    #  - return zeros, or
-    #  - implement global due counts across all decks.
-    # For now, do deck-only if deck_id provided:
-    if deck_id is not None:
-        due_count = crud.count_due_reviews(db, current_user.id, deck_id, pair_id=pair_id)
-        new_available = crud.count_new_available(db, current_user.id, deck_id, pair_id=pair_id)
-        next_due = crud.get_next_due_at(db, current_user.id, deck_id, pair_id=pair_id)
-    else:
-        due_count = 0
-        new_available = 0
-        next_due = None
-
-    today_cards_done = dp.cards_done 
-    today_new_done = dp.new_done
-    # totals
-    total_cards = crud.count_total_cards(db, current_user.id, deck_id=deck_id, pair_id=pair_id)
-    status_counts = crud.count_progress_statuses(db, current_user.id, deck_id=deck_id, pair_id=pair_id)
-
-    daily_card_target = int(getattr(current_user, "daily_card_target", 20) or 20)
-    daily_new_target = int(getattr(current_user, "daily_new_target", 7) or 7)
-
-    cards_remaining = max(daily_card_target - today_cards_done, 0)
-    new_remaining = max(daily_new_target - today_new_done, 0)
-
-    cards_goal_pct = min(today_cards_done / daily_card_target, 1.0) if daily_card_target > 0 else 1.0
-    new_goal_pct = min(today_new_done / daily_new_target, 1.0) if daily_new_target > 0 else 1.0
-
-    return {
-        "date": d,
-        "today_cards_done": dp.cards_done,
-        "today_reviews_done": dp.reviews_done,
-        "today_new_done": dp.new_done,
-        "today_added_cards": today_added,
-
-        "daily_card_target": daily_card_target,
-        "daily_new_target": daily_new_target,
-        "cards_remaining": cards_remaining,
-        "new_remaining": new_remaining,
-        "cards_goal_pct": cards_goal_pct,
-        "new_goal_pct": new_goal_pct,
-
-        "current_streak": st["current_streak"],
-        "best_streak": st["best_streak"],
-        "streak_threshold": st["threshold"],
-
-        "due_count": due_count,
-        "new_available_count": new_available,
-        "next_due_at": next_due,
-
-        "total_cards": total_cards,
-        "total_mastered": status_counts["mastered"],
-        "total_learning": status_counts["learning"],
-        "total_new": status_counts["new"],
-    }
-
-
+    return build_progress_summary(
+        db,
+        current_user,
+        deck_id=deck_id,
+        pair_id=pair_id,
+        streak_threshold=streak_threshold,
+    )
+    
 @router.delete("/me/progress")
 def reset_my_progress(
     deck_id: int,
@@ -274,9 +168,13 @@ def reset_my_progress(
 ):
     # Verify access (viewer is enough to reset own progress)
     try:
-        crud.require_deck_access(db, current_user.id, deck_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Deck not found or no access")
+        require_readable_deck(
+            db,
+            user_id=current_user.id,
+            deck_id=deck_id,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
     card_ids_subq = db.query(models.Card.id).filter(models.Card.deck_id == deck_id).subquery()
 

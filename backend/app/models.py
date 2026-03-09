@@ -138,7 +138,7 @@ class Deck(Base):
     #'main' main deck user can study
     # "user"    - user deck only storage
     # "library" - admin-created, read-only for normal users; users import cards into their own decks
-    deck_type = Column(String, default=DeckType.MAIN, nullable=False, index=True)
+    deck_type = Column(Enum(DeckType), default=DeckType.MAIN, nullable=False, index=True)
 
     # language pair
     source_language_id = Column(Integer, ForeignKey("languages.id"), nullable=False)
@@ -195,11 +195,13 @@ class Card(Base):
     __table_args__ = (UniqueConstraint("deck_id", "front_norm", name="uq_cards_deck_front_norm"),)
 
 
-class UserCardProgress(Base):
-    """
-    Per-user SM-2 progress for a specific card.
-    """
+class ProgressStatus(enum.Enum):
+    NEW = "new"
+    LEARNING = "learning"
+    MASTERED = "mastered"
 
+
+class UserCardProgress(Base):
     __tablename__ = "user_card_progress"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -209,14 +211,17 @@ class UserCardProgress(Base):
     times_correct = Column(Integer, default=0)
     last_review = Column(DateTime, nullable=True)
 
-    # 3-state scheduler
-    # status: new | learning | mastered
-    status = Column(String, default="new", nullable=False)
+    status = Column(
+        Enum(
+            ProgressStatus,
+            values_callable=lambda obj: [e.value for e in obj],
+            native_enum=False,
+        ),
+        default=ProgressStatus.NEW,
+        nullable=False,
+    )
 
-    # stage only used for "learning" (1..5)
     stage = Column(Integer, nullable=True)
-
-    # next time card is eligible to show (for NEW/LEARNING)
     due_at = Column(DateTime, nullable=True, index=True)
 
     __table_args__ = (

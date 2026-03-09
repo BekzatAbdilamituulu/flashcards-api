@@ -150,18 +150,17 @@ class DeckBase(BaseModel):
     name: str
     source_language_id: int
     target_language_id: int
-    deck_type: str = "users"  # "main" | "users" | "library"
 
 
 class DeckCreate(BaseModel):
     name: str
-    deck_type: str = "users"  # manual create supports only "users"
     pair_id: int | None = None
     source_language_id: int | None = None
     target_language_id: int | None = None
 
 class DeckOut(DeckBase):
     id: int
+    deck_type: str
     model_config = ConfigDict(from_attributes=True, use_enum_values=True)
 
 

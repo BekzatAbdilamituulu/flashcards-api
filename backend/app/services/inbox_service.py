@@ -3,9 +3,12 @@ from __future__ import annotations
 import re
 from typing import Optional, Tuple
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .. import models
+from app import crud, models, schemas
+from app.services import deck_service
+from app.services.pair_service import resolve_pair_for_user
 
 # Matches: em dash, en dash, minus sign, hyphen variants, colon, semicolon, equals, tab, pipe
 SPLIT_RE = re.compile(r"\s*(?:—|–|−|-|‐|:|;|=|\t|\|)\s*", re.UNICODE)
@@ -33,90 +36,159 @@ def _split_line(line: str, fixed_delim: Optional[str]) -> Optional[Tuple[str, st
             return None
         return front, back
 
-    # no delimiter -> front only
     return raw, ""
 
 
-INBOX_DECK_NAME = "Inbox"
-
-
-def resolve_language_pair(
+def resolve_inbox_deck(
     db: Session,
-    user: "models.User",
     *,
-    source_language_id: Optional[int],
-    target_language_id: Optional[int],
-    require_pair_exists: bool = True,
-) -> Tuple[int, int]:
-    """
-    Rules:
-    1) If both source & target provided -> use them (validate)
-       - if require_pair_exists=True and pair doesn't exist -> auto-create (inbox-friendly)
-    2) Else use default UserLearningPair (is_default=True)
-    3) Else use legacy user.default_source_language_id / default_target_language_id (if still present)
-    4) Else -> error
-    """
+    user_id: int,
+    source_language_id: int | None,
+    target_language_id: int | None,
+) -> models.Deck:
+    pair = resolve_pair_for_user(
+        db,
+        user_id=user_id,
+        source_language_id=source_language_id,
+        target_language_id=target_language_id,
+        auto_create_by_langs=True,
+        use_default_if_missing=True,
+    )
 
-    src_provided = source_language_id is not None
-    tgt_provided = target_language_id is not None
+    return deck_service.resolve_main_deck_from_pair(
+        db,
+        user_id=user_id,
+        pair=pair,
+    )
 
-    # If only one is provided -> error (client bug)
-    if src_provided ^ tgt_provided:
-        raise ValueError(
-            "Provide BOTH source_language_id and target_language_id, or provide neither."
-        )
 
-    # Case 1 — explicit pair in payload
-    if src_provided and tgt_provided:
-        if source_language_id == target_language_id:
-            raise ValueError("source_language_id and target_language_id must be different")
+def quick_add_word(
+    db: Session,
+    *,
+    user_id: int,
+    payload: schemas.InboxWordIn,
+) -> dict:
+    deck = resolve_inbox_deck(
+        db,
+        user_id=user_id,
+        source_language_id=payload.source_language_id,
+        target_language_id=payload.target_language_id,
+    )
 
-        if require_pair_exists:
-            pair = (
-                db.query(models.UserLearningPair)
-                .filter(
-                    models.UserLearningPair.user_id == user.id,
-                    models.UserLearningPair.source_language_id == source_language_id,
-                    models.UserLearningPair.target_language_id == target_language_id,
-                )
-                .first()
+    back = (payload.back or "").strip()
+    example = payload.example_sentence.strip() if payload.example_sentence else None
+
+    card = crud.create_card(
+        db,
+        deck_id=deck.id,
+        user_id=user_id,
+        front=payload.front.strip(),
+        back=back,
+        example_sentence=example,
+        auto_fill=True,
+    )
+
+    return {"deck_id": deck.id, "card": card}
+
+
+def bulk_import(
+    db: Session,
+    *,
+    user_id: int,
+    payload: schemas.InboxBulkIn,
+) -> dict:
+    deck = resolve_inbox_deck(
+        db,
+        user_id=user_id,
+        source_language_id=payload.source_language_id,
+        target_language_id=payload.target_language_id,
+    )
+
+    lines = payload.text.splitlines()
+    results: list[schemas.BulkItemResult] = []
+    created = 0
+    skipped = 0
+    failed = 0
+    seen_norms: set[str] = set()
+
+    for line in lines:
+        parsed = _split_line(line, payload.delimiter)
+        if not parsed:
+            skipped += 1
+            results.append(
+                schemas.BulkItemResult(line=line, status="skipped", reason="empty/invalid")
             )
-            if not pair:
-                # auto-create pair (NOT default)
-                pair = models.UserLearningPair(
-                    user_id=user.id,
-                    source_language_id=source_language_id,
-                    target_language_id=target_language_id,
-                    is_default=False,
-                )
-                db.add(pair)
-                db.commit()
+            continue
 
-        return source_language_id, target_language_id
+        front, back = parsed
+        front = front.strip()
+        back = (back or "").strip()
 
-    # Case 2 — default learning pair
-    pair = (
-        db.query(models.UserLearningPair)
-        .filter(
-            models.UserLearningPair.user_id == user.id,
-            models.UserLearningPair.is_default.is_(True),
-        )
-        .first()
-    )
-    if pair:
-        return pair.source_language_id, pair.target_language_id
+        if not front:
+            skipped += 1
+            results.append(
+                schemas.BulkItemResult(line=line, status="skipped", reason="empty front")
+            )
+            continue
 
-    # Case 3 — legacy fallback (if your User still has these fields)
-    legacy_src = getattr(user, "default_source_language_id", None)
-    legacy_tgt = getattr(user, "default_target_language_id", None)
+        front_norm = crud.normalize_front(front)
+        if front_norm in seen_norms:
+            skipped += 1
+            results.append(
+                schemas.BulkItemResult(line=line, status="skipped", reason="duplicate in paste")
+            )
+            continue
+        seen_norms.add(front_norm)
 
-    if legacy_src is not None and legacy_tgt is not None:
-        if legacy_src == legacy_tgt:
-            raise ValueError("Legacy default languages are invalid (source == target)")
-        return legacy_src, legacy_tgt
+        if crud.card_exists_in_deck(db, deck.id, front):
+            skipped += 1
+            results.append(
+                schemas.BulkItemResult(line=line, status="skipped", reason="duplicate")
+            )
+            continue
 
-    # Case 4 — nothing configured
-    raise ValueError(
-        "No default language pair. Set it via /users/me/learning-pairs "
-        "or include source_language_id and target_language_id in request."
-    )
+        if payload.dry_run:
+            created += 1
+            results.append(
+                schemas.BulkItemResult(line=line, status="preview", reason="dry_run")
+            )
+            continue
+
+        try:
+            card = crud.create_card(
+                db,
+                deck_id=deck.id,
+                user_id=user_id,
+                front=front,
+                back=back,
+                example_sentence=None,
+                auto_fill=False,
+            )
+            created += 1
+            results.append(
+                schemas.BulkItemResult(line=line, status="created", card_id=card.id)
+            )
+        except ValueError as e:
+            skipped += 1
+            results.append(
+                schemas.BulkItemResult(line=line, status="skipped", reason=str(e))
+            )
+        except IntegrityError:
+            db.rollback()
+            skipped += 1
+            results.append(
+                schemas.BulkItemResult(line=line, status="skipped", reason="duplicate")
+            )
+        except Exception as e:
+            failed += 1
+            results.append(
+                schemas.BulkItemResult(line=line, status="failed", reason=str(e))
+            )
+
+    return {
+        "deck_id": deck.id,
+        "created": created,
+        "skipped": skipped,
+        "failed": failed,
+        "results": results,
+    }

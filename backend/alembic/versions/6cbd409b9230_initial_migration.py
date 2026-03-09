@@ -1,8 +1,8 @@
-"""init
+"""Initial migration
 
-Revision ID: e482949eb554
+Revision ID: 6cbd409b9230
 Revises: 
-Create Date: 2026-03-06 22:45:00.461561
+Create Date: 2026-03-08 21:02:14.639952
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'e482949eb554'
+revision: str = '6cbd409b9230'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -47,7 +47,7 @@ def upgrade() -> None:
     sa.Column('is_public', sa.Boolean(), nullable=False),
     sa.Column('status', sa.Enum('DRAFT', 'PUBLISHED', 'HIDDEN', name='deckstatus'), nullable=False),
     sa.Column('shared_code', sa.String(), nullable=True),
-    sa.Column('deck_type', sa.String(), nullable=False),
+    sa.Column('deck_type', sa.Enum('MAIN', 'USERS', 'LIBRARY', name='decktype'), nullable=False),
     sa.Column('source_language_id', sa.Integer(), nullable=False),
     sa.Column('target_language_id', sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(['owner_id'], ['users.id'], ),
@@ -185,7 +185,7 @@ def upgrade() -> None:
     sa.Column('times_seen', sa.Integer(), nullable=True),
     sa.Column('times_correct', sa.Integer(), nullable=True),
     sa.Column('last_review', sa.DateTime(), nullable=True),
-    sa.Column('status', sa.String(), nullable=False),
+    sa.Column('status', sa.Enum('NEW', 'LEARNING', 'MASTERED', name='progressstatus'), nullable=False),
     sa.Column('stage', sa.Integer(), nullable=True),
     sa.Column('due_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['card_id'], ['cards.id'], ),

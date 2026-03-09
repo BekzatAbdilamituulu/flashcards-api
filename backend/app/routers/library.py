@@ -3,9 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from .. import crud, schemas
+from .. import crud, schemas, models
 from ..database import get_db
 from ..deps import get_current_user, require_admin
+from app.services import library_service
 
 router = APIRouter(prefix="/library", tags=["library"])
 
@@ -71,7 +72,7 @@ def import_library_card(
     current_user=Depends(get_current_user),
 ):
     try:
-        return crud.import_library_card_to_main_deck(
+        return library_service.import_library_card_to_main_deck(
             db,
             user_id=current_user.id,
             library_card_id=card_id,
@@ -94,11 +95,11 @@ def import_selected_cards(
     current_user=Depends(get_current_user),
 ):
     try:
-        return crud.import_selected_library_cards_to_main_deck(
+        return library_service.import_selected_library_cards_to_main_deck(
             db,
             user_id=current_user.id,
             library_deck_id=deck_id,
-            card_ids=payload.card_ids
+            card_ids=payload.card_ids,
         )
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -124,7 +125,7 @@ def admin_create_library_deck(
         owner_id=current_user.id,
         source_language_id=payload.source_language_id,
         target_language_id=payload.target_language_id,
-        deck_type="library",
+        deck_type=models.DeckType.LIBRARY,
     )
     deck.is_public = True
     db.commit()
