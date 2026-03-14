@@ -139,6 +139,8 @@ class Deck(Base):
     # "user"    - user deck only storage
     # "library" - admin-created, read-only for normal users; users import cards into their own decks
     deck_type = Column(Enum(DeckType), default=DeckType.MAIN, nullable=False, index=True)
+    source_type = Column(String, nullable=True)
+    author_name = Column(String, nullable=True)
 
     # language pair
     source_language_id = Column(Integer, ForeignKey("languages.id"), nullable=False)
@@ -185,14 +187,61 @@ class Card(Base):
     front_norm = Column(String, nullable=False, index=True)
     back = Column(String, nullable=True)
     example_sentence = Column(String, nullable=True)
+    # DeepLex main use-case: saved vocabulary from reading context.
+    # content_kind can be word/phrase/quote/idea-like values.
+    content_kind = Column(String, nullable=False, default="word")
+    source_title = Column(String, nullable=True)
+    source_author = Column(String, nullable=True)
+    source_reference = Column(Text, nullable=True)
+    source_sentence = Column(Text, nullable=True)
+    source_page = Column(String, nullable=True)
+    # User-owned memory anchor tied to the reading moment.
+    context_note = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     deck_id = Column(Integer, ForeignKey("decks.id"), nullable=False, index=True)
     deck = relationship("Deck", back_populates="cards")
+    reading_source_id = Column(Integer, ForeignKey("reading_sources.id"), nullable=True, index=True)
+    reading_source = relationship("ReadingSource", back_populates="cards")
 
     library_source_card_id = Column(Integer, ForeignKey("cards.id"), nullable=True, index=True)
 
     __table_args__ = (UniqueConstraint("deck_id", "front_norm", name="uq_cards_deck_front_norm"),)
+
+
+class ReadingSource(Base):
+    __tablename__ = "reading_sources"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    pair_id = Column(
+        Integer,
+        ForeignKey("user_learning_pairs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    title = Column(String, nullable=False)
+    title_norm = Column(String, nullable=False, index=True)
+    author = Column(String, nullable=True)
+    author_norm = Column(String, nullable=False, index=True, default="")
+    kind = Column(String, nullable=True)
+    reference = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    user = relationship("User", backref="reading_sources")
+    pair = relationship("UserLearningPair", backref="reading_sources")
+    cards = relationship("Card", back_populates="reading_source")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "pair_id",
+            "title_norm",
+            "author_norm",
+            name="uq_reading_sources_user_pair_title_author",
+        ),
+    )
 
 
 class ProgressStatus(enum.Enum):

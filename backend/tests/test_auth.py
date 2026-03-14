@@ -40,3 +40,13 @@ def test_login_json(client):
     body = r.json()
     assert "access_token" in body
     assert "refresh_token" in body
+
+
+def test_login_form(client):
+    client.post("/api/v1/auth/register", json={"username": "u_form", "password": "12345678"})
+
+    r = client.post("/api/v1/auth/login", data={"username": "u_form", "password": "12345678"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "access_token" in body
+    assert "refresh_token" in body

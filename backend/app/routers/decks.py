@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .. import crud, schemas, models
@@ -63,14 +64,22 @@ def create_user_deck(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return crud.create_deck(
-        db,
-        name=payload.name,
-        owner_id=user.id,
-        source_language_id=pair.source_language_id,
-        target_language_id=pair.target_language_id,
-        deck_type=models.DeckType.USERS,
-    )
+    try:
+        deck = crud.create_deck(
+            db,
+            name=payload.name,
+            owner_id=user.id,
+            source_language_id=pair.source_language_id,
+            target_language_id=pair.target_language_id,
+            deck_type=models.DeckType.USERS,
+            source_type=payload.source_type,
+            author_name=payload.author_name,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return deck
 
 
 @router.get("/{deck_id}", response_model=schemas.DeckOut)
@@ -104,19 +113,32 @@ def patch_deck(
         raise HTTPException(status_code=400, detail="Only 'users' decks can be updated")
 
     try:
-        return crud.update_deck(
+        deck = crud.update_deck(
             db,
             deck_id=deck_id,
             user_id=user.id,
             name=payload.name,
             is_public=payload.is_public,
+            source_type=payload.source_type,
+            author_name=payload.author_name,
         )
+        db.commit()
+        return deck
     except PermissionError as e:
+        db.rollback()
         raise HTTPException(status_code=403, detail=str(e))
-    except LookupError:
-        raise HTTPException(status_code=404, detail="Deck not found")
+    except LookupError as e:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Deck update failed")
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.delete("/{deck_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -127,17 +149,20 @@ def delete_deck(deck_id: int, db: Session = Depends(get_db), user=Depends(get_cu
             user_id=user.id,
             deck_id=deck_id,
         )
+        ok = crud.delete_deck(db, deck_id, user.id)
+        if not ok:
+            # crud.delete_deck should enforce owner check; if it returns False => not owner
+            raise HTTPException(status_code=404, detail="Deck not found or not owner")
+        db.commit()
+        return
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError:
         # Preserve existing behavior for this endpoint.
         raise HTTPException(status_code=403, detail="You cannot delete this deck type")
-
-    ok = crud.delete_deck(db, deck_id, user.id)
-    if not ok:
-        # crud.delete_deck should enforce owner check; if it returns False => not owner
-        raise HTTPException(status_code=404, detail="Deck not found or not owner")
-    return
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.get("/{deck_id}/cards", response_model=schemas.Page[schemas.CardWithStatusOut])
@@ -145,6 +170,7 @@ def list_cards(
     deck_id: int,
     limit: int = 50,
     offset: int = 0,
+    reading_source_id: int | None = None,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
@@ -157,11 +183,14 @@ def list_cards(
             user.id,
             limit=limit,
             offset=offset,
+            reading_source_id=reading_source_id,
         )
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {
         "items": items,
         "meta": {
@@ -183,19 +212,36 @@ def create_card(
     user=Depends(get_current_user),
 ):
     try:
-        return crud.create_card(
+        card = crud.create_card(
             db,
             deck_id=deck_id,
             user_id=user.id,
             front=payload.front,
             back=payload.back,
             example_sentence=payload.example_sentence,
+            content_kind=payload.content_kind,
+            reading_source_id=payload.reading_source_id,
+            source_title=payload.source_title,
+            source_author=payload.source_author,
+            source_kind=payload.source_kind,
+            source_reference=payload.source_reference,
+            source_sentence=payload.source_sentence,
+            source_page=payload.source_page,
+            context_note=payload.context_note,
         )
+        db.commit()
+        return card
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Duplicate word in this deck")
     except PermissionError as e:
+        db.rollback()
         raise HTTPException(status_code=403, detail=str(e))
     except LookupError:
+        db.rollback()
         raise HTTPException(status_code=404, detail="Deck not found")
     except ValueError as e:
+        db.rollback()
         # This covers: "Duplicate word in this deck"
         # and any validation error you raise from crud
         raise HTTPException(status_code=400, detail=str(e))
@@ -210,7 +256,7 @@ def update_card(
     user=Depends(get_current_user),
 ):
     try:
-        return crud.update_card(
+        card = crud.update_card(
             db,
             deck_id=deck_id,
             card_id=card_id,
@@ -218,12 +264,29 @@ def update_card(
             front=payload.front,
             back=payload.back,
             example_sentence=payload.example_sentence,
+            content_kind=payload.content_kind,
+            reading_source_id=payload.reading_source_id,
+            source_title=payload.source_title,
+            source_author=payload.source_author,
+            source_kind=payload.source_kind,
+            source_reference=payload.source_reference,
+            source_sentence=payload.source_sentence,
+            source_page=payload.source_page,
+            context_note=payload.context_note,
         )
+        db.commit()
+        return card
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Duplicate word in this deck")
     except PermissionError:
+        db.rollback()
         raise HTTPException(status_code=403, detail="No permission to edit deck")
-    except LookupError:
-        raise HTTPException(status_code=404, detail="Card not found")
+    except LookupError as e:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
+        db.rollback()
         # includes "Duplicate word in this deck" and "Front is required"
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -235,15 +298,19 @@ def reset_card(
     user=Depends(get_current_user),
 ):
     try:
-        return crud.reset_card_progress(
+        card = crud.reset_card_progress(
             db,
             deck_id=deck_id,
             card_id=card_id,
             user_id=user.id,
         )
+        db.commit()
+        return card
     except PermissionError:
+        db.rollback()
         raise HTTPException(status_code=403, detail="No permission to access deck")
     except LookupError:
+        db.rollback()
         raise HTTPException(status_code=404, detail="Card not found")
 
 @router.delete("/{deck_id}/cards/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -255,9 +322,13 @@ def delete_card(
 ):
     try:
         ok = crud.delete_card(db, deck_id=deck_id, card_id=card_id, user_id=user.id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Card not found")
+        db.commit()
+        return
     except PermissionError:
+        db.rollback()
         raise HTTPException(status_code=403, detail="No permission to edit deck")
-
-    if not ok:
-        raise HTTPException(status_code=404, detail="Card not found")
-    return
+    except Exception:
+        db.rollback()
+        raise

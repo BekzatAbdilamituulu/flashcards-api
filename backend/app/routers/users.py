@@ -32,18 +32,23 @@ def set_default_languages(
         .first()
     )
 
-    if not pair:
-        pair = models.UserLearningPair(
-            user_id=current_user.id,
-            source_language_id=payload.default_source_language_id,
-            target_language_id=payload.default_target_language_id,
-            is_default=False,
-        )
-        db.add(pair)
-        db.flush()
+    try:
+        if not pair:
+            pair = models.UserLearningPair(
+                user_id=current_user.id,
+                source_language_id=payload.default_source_language_id,
+                target_language_id=payload.default_target_language_id,
+                is_default=False,
+            )
+            db.add(pair)
+            db.flush()
 
-    # this updates user legacy fields (if exist) + creates main deck + commits
-    pair = crud.set_default_learning_pair(db, current_user.id, pair.id)
+        # this updates user legacy fields (if exist) + ensures main deck exists
+        pair = crud.set_default_learning_pair(db, current_user.id, pair.id)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     # return fresh user (so defaults are not None)
     user = db.query(models.User).filter(models.User.id == current_user.id).first()
@@ -86,18 +91,23 @@ def add_learning_pair(
         )
         .first()
     )
-    if existing:
-        pair = existing
-    else:
-        pair = crud.create_learning_pair(
-            db,
-            current_user.id,
-            payload.source_language_id,
-            payload.target_language_id,
-        )
+    try:
+        if existing:
+            pair = existing
+        else:
+            pair = crud.create_learning_pair(
+                db,
+                current_user.id,
+                payload.source_language_id,
+                payload.target_language_id,
+            )
 
-    if payload.make_default:
-        pair = crud.set_default_learning_pair(db, current_user.id, pair.id)
+        if payload.make_default:
+            pair = crud.set_default_learning_pair(db, current_user.id, pair.id)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     return pair
 
@@ -108,7 +118,12 @@ def set_default_pair(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    pair = crud.set_default_learning_pair(db, current_user.id, pair_id)
+    try:
+        pair = crud.set_default_learning_pair(db, current_user.id, pair_id)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     if not pair:
         raise HTTPException(status_code=404, detail="Pair not found")
     return pair

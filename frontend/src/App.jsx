@@ -11,8 +11,8 @@ import AddPairPage from "./pages/AddPairPage";
 import DashboardPage from "./pages/DashboardPage";
 import StudyPage from "./pages/StudyPage";
 import StudyHomePage from "./pages/StudyHomePage";
-import DecksPage from "./pages/DecksPage";
-import DeckDetailPage from "./pages/DeckDetailPage";
+import SourcesPage from "./pages/DecksPage";
+import SourceDetailPage from "./pages/DeckDetailPage";
 import LibraryPage from "./pages/library/LibraryPage";
 import LibraryDeckDetailPage from "./pages/library/LibraryDeckDetailPage";
 import ProfilePage from "./pages/ProfilePage";
@@ -28,6 +28,14 @@ function RequireGuest({ children }) {
   const authed = !!tokens.getAccess();
   if (authed) return <Navigate to="/app" replace />;
   return children;
+}
+
+function LegacyDeckRouteRedirect() {
+  const path = window.location.pathname;
+  if (path.startsWith("/app/decks/")) {
+    return <Navigate to={path.replace("/app/decks/", "/app/sources/")} replace />;
+  }
+  return <Navigate to="/app/sources" replace />;
 }
 
 export default function App() {
@@ -54,8 +62,10 @@ export default function App() {
         />
         <Route path="/app" element={<DashboardPage />} />
         <Route path="/app/pairs/new" element={<AddPairPage />} />
-        <Route path="/app/decks" element={<DecksPage />} />
-        <Route path="/app/decks/:deckId" element={<DeckDetailPage />} />
+        <Route path="/app/sources" element={<SourcesPage />} />
+        <Route path="/app/sources/:sourceId" element={<SourceDetailPage />} />
+        <Route path="/app/decks" element={<Navigate to="/app/sources" replace />} />
+        <Route path="/app/decks/:deckId" element={<LegacyDeckRouteRedirect />} />
         <Route path="/app/library" element={<LibraryPage />} />
         <Route path="/app/library/:deckId" element={<LibraryDeckDetailPage />} />
         <Route path="/app/profile" element={<ProfilePage />} />

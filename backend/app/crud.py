@@ -5,7 +5,6 @@ from datetime import date, datetime, timedelta
 from typing import List, Optional
 
 from sqlalchemy import and_, func, or_
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.utils.time import bishkek_day_bounds, bishkek_today
@@ -34,11 +33,7 @@ def get_user_by_username(db: Session, username: str) -> Optional[models.User]:
 def create_user(db: Session, username: str, hashed_password: str) -> models.User:
     user = models.User(username=username, hashed_password=hashed_password)
     db.add(user)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise
+    db.flush()
     db.refresh(user)
     return user
 
@@ -114,7 +109,7 @@ def create_learning_pair(
         is_default=False,
     )
     db.add(pair)
-    db.commit()
+    db.flush()
     return (
         db.query(models.UserLearningPair)
         .options(
@@ -212,7 +207,7 @@ def set_default_learning_pair(db: Session, user_id: int, pair_id: int):
         target_language_id=pair.target_language_id,
     )
 
-    db.commit()
+    db.flush()
     return (
         db.query(models.UserLearningPair)
         .options(
@@ -232,11 +227,7 @@ def list_languages(db: Session) -> List[models.Language]:
 def create_language(db: Session, name: str, code: Optional[str] = None) -> models.Language:
     lang = models.Language(name=name, code=code)
     db.add(lang)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise
+    db.flush()
     db.refresh(lang)
     return lang
 
@@ -251,11 +242,7 @@ def update_language(
         lang.name = name
     if code is not None:
         lang.code = code
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise
+    db.flush()
     db.refresh(lang)
     return lang
 
@@ -277,7 +264,7 @@ def delete_language(db: Session, language_id: int) -> bool:
         raise ValueError("Language is used by a deck")
 
     db.delete(lang)
-    db.commit()
+    db.flush()
     return True
 
 def count_cards_in_deck(db: Session, deck_id: int) -> int:
@@ -332,7 +319,15 @@ def get_card_for_library_import(db: Session, library_card_id: int) -> models.Car
         .first()
     )
 
-def list_library_deck_cards(db: Session, deck_id: int, limit: int, offset: int):
+def list_library_deck_cards(
+    db: Session,
+    deck_id: int,
+    limit: int,
+    offset: int,
+    *,
+    reading_source_id: int | None = None,
+    user_id: int | None = None,
+):
     deck = (
         db.query(models.Deck)
         .filter(models.Deck.id == deck_id, models.Deck.deck_type == models.DeckType.LIBRARY)
@@ -341,9 +336,44 @@ def list_library_deck_cards(db: Session, deck_id: int, limit: int, offset: int):
     if not deck:
         return [], 0
 
+    if reading_source_id is not None:
+        if user_id is None:
+            raise ValueError("user_id is required for reading_source filter")
+        source = (
+            db.query(models.ReadingSource)
+            .filter(
+                models.ReadingSource.id == reading_source_id,
+                models.ReadingSource.user_id == user_id,
+            )
+            .first()
+        )
+        if not source:
+            raise LookupError("Reading source not found")
+        pair = (
+            db.query(models.UserLearningPair)
+            .filter(
+                models.UserLearningPair.id == source.pair_id,
+                models.UserLearningPair.user_id == user_id,
+            )
+            .first()
+        )
+        if not pair:
+            raise LookupError("Reading source not found")
+        if (
+            pair.source_language_id != deck.source_language_id
+            or pair.target_language_id != deck.target_language_id
+        ):
+            raise ValueError("Reading source pair does not match deck pair")
+
     base_q = (
-        db.query(models.Card).filter(models.Card.deck_id == deck_id).order_by(models.Card.id.asc())
+        db.query(models.Card)
+        .options(joinedload(models.Card.reading_source))
+        .filter(models.Card.deck_id == deck_id)
+        .order_by(models.Card.id.asc())
     )
+    if reading_source_id is not None:
+        base_q = base_q.filter(models.Card.reading_source_id == reading_source_id)
+
     total = base_q.count()
     items = base_q.offset(offset).limit(limit).all()
     return items, total
@@ -403,9 +433,16 @@ def import_library_card_to_user_deck(
         front_norm=lib_card.front_norm,
         back=lib_card.back,
         example_sentence=lib_card.example_sentence,
+        content_kind=lib_card.content_kind,
+        source_title=lib_card.source_title,
+        source_author=lib_card.source_author,
+        source_reference=lib_card.source_reference,
+        source_sentence=lib_card.source_sentence,
+        source_page=lib_card.source_page,
+        context_note=lib_card.context_note,
     )
     db.add(new_card)
-    db.commit()
+    db.flush()
     db.refresh(new_card)
 
     return {
@@ -502,7 +539,9 @@ def create_deck(
     source_language_id: int,
     target_language_id: int,
     *,
-    deck_type: models.DeckType = models.DeckType.USERS
+    deck_type: models.DeckType = models.DeckType.USERS,
+    source_type: str | None = None,
+    author_name: str | None = None,
 ) -> models.Deck:
     deck = models.Deck(
         name=name,
@@ -510,14 +549,15 @@ def create_deck(
         source_language_id=source_language_id,
         target_language_id=target_language_id,
         deck_type=deck_type,
+        source_type=source_type,
+        author_name=author_name,
     )
     db.add(deck)
     db.flush()  # get deck.id
 
     access = models.DeckAccess(deck_id=deck.id, user_id=owner_id, role=models.DeckRole.OWNER)
     db.add(access)
-
-    db.commit()
+    db.flush()
     db.refresh(deck)
     return deck
 
@@ -529,6 +569,8 @@ def update_deck(
     user_id: int,
     name: str | None = None,
     is_public: bool | None = None,
+    source_type: str | None = None,
+    author_name: str | None = None,
 ) -> models.Deck:
     access = (
         db.query(models.DeckAccess)
@@ -554,8 +596,12 @@ def update_deck(
 
     if is_public is not None:
         deck.is_public = is_public
+    if source_type is not None:
+        deck.source_type = source_type
+    if author_name is not None:
+        deck.author_name = author_name
 
-    db.commit()
+    db.flush()
     db.refresh(deck)
     return deck
 
@@ -578,7 +624,7 @@ def delete_deck(db: Session, deck_id: int, user_id: int) -> bool:
         raise PermissionError("Only 'users' decks can be deleted")
 
     db.delete(deck)
-    db.commit()
+    db.flush()
     return True
 
 
@@ -640,6 +686,47 @@ def normalize_front(text: str) -> str:
 from app.services import auto_content
 
 
+def _resolve_reading_source_for_deck(
+    db: Session,
+    *,
+    user_id: int,
+    deck: models.Deck,
+    reading_source_id: int | None,
+) -> models.ReadingSource | None:
+    if reading_source_id is None:
+        return None
+
+    source = (
+        db.query(models.ReadingSource)
+        .filter(
+            models.ReadingSource.id == reading_source_id,
+            models.ReadingSource.user_id == user_id,
+        )
+        .first()
+    )
+    if not source:
+        raise LookupError("Reading source not found")
+
+    pair = (
+        db.query(models.UserLearningPair)
+        .filter(
+            models.UserLearningPair.id == source.pair_id,
+            models.UserLearningPair.user_id == user_id,
+        )
+        .first()
+    )
+    if not pair:
+        raise LookupError("Reading source not found")
+
+    if (
+        pair.source_language_id != deck.source_language_id
+        or pair.target_language_id != deck.target_language_id
+    ):
+        raise ValueError("Reading source pair does not match deck pair")
+
+    return source
+
+
 def create_card(
     db: Session,
     deck_id: int,
@@ -647,6 +734,15 @@ def create_card(
     front: str,
     back: str,
     example_sentence: Optional[str] = None,
+    content_kind: Optional[str] = None,
+    reading_source_id: Optional[int] = None,
+    source_title: Optional[str] = None,
+    source_author: Optional[str] = None,
+    source_kind: Optional[str] = None,
+    source_reference: Optional[str] = None,
+    source_sentence: Optional[str] = None,
+    source_page: Optional[str] = None,
+    context_note: Optional[str] = None,
     *,
     auto_fill: bool = True,
 ) -> models.Card:
@@ -660,12 +756,45 @@ def create_card(
 
     if deck.deck_type == models.DeckType.LIBRARY and not is_admin:
         raise PermissionError("Library decks are read only")
+    reading_source = _resolve_reading_source_for_deck(
+        db,
+        user_id=user_id,
+        deck=deck,
+        reading_source_id=reading_source_id,
+    )
+    if reading_source is None and (source_title or "").strip():
+        from app.services.reading_source_service import resolve_or_create_reading_source
+
+        pair = get_user_learning_pair_by_langs(
+            db,
+            user_id=user_id,
+            source_language_id=deck.source_language_id,
+            target_language_id=deck.target_language_id,
+        )
+        if pair:
+            reading_source = resolve_or_create_reading_source(
+                db,
+                user_id=user_id,
+                pair_id=pair.id,
+                source_title=source_title,
+                source_author=source_author,
+                source_kind=source_kind,
+                source_reference=source_reference,
+                create_if_missing=True,
+            )
 
     front_clean = (front or "").strip()
     if not front_clean:
         raise ValueError("Front is required")
 
     front_norm = normalize_front(front_clean)
+    existing = (
+        db.query(models.Card.id)
+        .filter(models.Card.deck_id == deck_id, models.Card.front_norm == front_norm)
+        .first()
+    )
+    if existing:
+        raise ValueError("Duplicate word in this deck")
 
     # Auto-fill ONLY if allowed
     if auto_fill:
@@ -687,21 +816,38 @@ def create_card(
             )
     back_clean = auto_content.clean_text(back)
     example_clean = auto_content.clean_example(example_sentence)
+    source_title_clean = auto_content.clean_text(source_title)
+    source_author_clean = auto_content.clean_text(source_author)
+    source_reference_clean = auto_content.clean_text(source_reference)
+    source_sentence_clean = auto_content.clean_text(source_sentence)
+    context_note_clean = auto_content.clean_text(context_note)
+    content_kind_clean = (content_kind or "word").strip() or "word"
+    source_page_clean = (source_page or "").strip() or None
+    source_title_final = source_title_clean or (reading_source.title if reading_source else None)
+    source_author_final = source_author_clean or (reading_source.author if reading_source else None)
+    source_reference_final = source_reference_clean or (
+        reading_source.reference if reading_source else None
+    )
+    if source_kind is not None and reading_source is not None:
+        reading_source.kind = auto_content.clean_text(source_kind) or None
     card = models.Card(
         deck_id=deck_id,
         front=front_clean,
         front_norm=front_norm,
         back=back_clean,
         example_sentence=example_clean,
+        content_kind=content_kind_clean,
+        reading_source_id=reading_source.id if reading_source else None,
+        source_title=source_title_final,
+        source_author=source_author_final,
+        source_reference=source_reference_final,
+        source_sentence=source_sentence_clean or None,
+        source_page=source_page_clean,
+        context_note=context_note_clean or None,
     )
 
     db.add(card)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise ValueError("Duplicate word in this deck")
-
+    db.flush()
     db.refresh(card)
     return card
 
@@ -725,6 +871,15 @@ def update_card(
     front: Optional[str] = None,
     back: Optional[str] = None,
     example_sentence: Optional[str] = None,
+    content_kind: Optional[str] = None,
+    reading_source_id: Optional[int] = None,
+    source_title: Optional[str] = None,
+    source_author: Optional[str] = None,
+    source_kind: Optional[str] = None,
+    source_reference: Optional[str] = None,
+    source_sentence: Optional[str] = None,
+    source_page: Optional[str] = None,
+    context_note: Optional[str] = None,
 ) -> models.Card:
     access = require_deck_access(db, user_id, deck_id)
     deck = access.deck
@@ -736,6 +891,37 @@ def update_card(
 
     if deck.deck_type == models.DeckType.LIBRARY and not is_admin:
         raise PermissionError('Library decks are read-only')
+    reading_source = _resolve_reading_source_for_deck(
+        db,
+        user_id=user_id,
+        deck=deck,
+        reading_source_id=reading_source_id,
+    )
+    if (
+        reading_source is None
+        and reading_source_id is None
+        and source_title is not None
+        and source_title.strip()
+    ):
+        from app.services.reading_source_service import resolve_or_create_reading_source
+
+        pair = get_user_learning_pair_by_langs(
+            db,
+            user_id=user_id,
+            source_language_id=deck.source_language_id,
+            target_language_id=deck.target_language_id,
+        )
+        if pair:
+            reading_source = resolve_or_create_reading_source(
+                db,
+                user_id=user_id,
+                pair_id=pair.id,
+                source_title=source_title,
+                source_author=source_author,
+                source_kind=source_kind,
+                source_reference=source_reference,
+                create_if_missing=True,
+            )
 
     card = (
         db.query(models.Card)
@@ -749,8 +935,20 @@ def update_card(
         front_clean = (front or "").strip()
         if not front_clean:
             raise ValueError("Front is required")
+        front_norm = normalize_front(front_clean)
+        duplicate = (
+            db.query(models.Card.id)
+            .filter(
+                models.Card.deck_id == deck_id,
+                models.Card.front_norm == front_norm,
+                models.Card.id != card_id,
+            )
+            .first()
+        )
+        if duplicate:
+            raise ValueError("Duplicate word in this deck")
         card.front = front_clean
-        card.front_norm = normalize_front(front_clean)
+        card.front_norm = front_norm
 
     if back is not None:
         card.back = (back or "").strip()
@@ -759,13 +957,34 @@ def update_card(
         # allow clearing with empty string
         val = (example_sentence or "").strip()
         card.example_sentence = val or None
+    if content_kind is not None:
+        card.content_kind = (content_kind or "word").strip() or "word"
+    if reading_source_id is not None:
+        card.reading_source_id = reading_source.id if reading_source else None
+        if not source_title:
+            card.source_title = reading_source.title if reading_source else None
+        if not source_author:
+            card.source_author = reading_source.author if reading_source else None
+        if not source_reference:
+            card.source_reference = reading_source.reference if reading_source else None
+    elif reading_source is not None:
+        card.reading_source_id = reading_source.id
+    if source_title is not None:
+        card.source_title = auto_content.clean_text(source_title) or None
+    if source_author is not None:
+        card.source_author = auto_content.clean_text(source_author) or None
+    if source_kind is not None and reading_source is not None:
+        reading_source.kind = auto_content.clean_text(source_kind) or None
+    if source_reference is not None:
+        card.source_reference = auto_content.clean_text(source_reference) or None
+    if source_sentence is not None:
+        card.source_sentence = auto_content.clean_text(source_sentence) or None
+    if source_page is not None:
+        card.source_page = (source_page or "").strip() or None
+    if context_note is not None:
+        card.context_note = auto_content.clean_text(context_note) or None
 
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise ValueError("Duplicate word in this deck")
-
+    db.flush()
     db.refresh(card)
     return card
 
@@ -796,7 +1015,7 @@ def delete_card(db: Session, deck_id: int, card_id: int, user_id: int) -> bool:
     )
 
     db.delete(card)
-    db.commit()
+    db.flush()
     return True
 
 
@@ -806,14 +1025,46 @@ def list_deck_cards(
     user_id: int,
     limit: int,
     offset: int,
+    reading_source_id: int | None = None,
 ):
-    require_deck_access(db, user_id, deck_id)
+    access = require_deck_access(db, user_id, deck_id)
+    deck = access.deck
+
+    if reading_source_id is not None:
+        source = (
+            db.query(models.ReadingSource)
+            .filter(
+                models.ReadingSource.id == reading_source_id,
+                models.ReadingSource.user_id == user_id,
+            )
+            .first()
+        )
+        if not source:
+            raise LookupError("Reading source not found")
+        pair = (
+            db.query(models.UserLearningPair)
+            .filter(
+                models.UserLearningPair.id == source.pair_id,
+                models.UserLearningPair.user_id == user_id,
+            )
+            .first()
+        )
+        if not pair:
+            raise LookupError("Reading source not found")
+        if (
+            pair.source_language_id != deck.source_language_id
+            or pair.target_language_id != deck.target_language_id
+        ):
+            raise ValueError("Reading source pair does not match deck pair")
 
     base_q = (
         db.query(models.Card)
+        .options(joinedload(models.Card.reading_source))
         .filter(models.Card.deck_id == deck_id)
         .order_by(models.Card.id.asc())
     )
+    if reading_source_id is not None:
+        base_q = base_q.filter(models.Card.reading_source_id == reading_source_id)
 
     total = base_q.count()
     cards = base_q.offset(offset).limit(limit).all()
@@ -869,7 +1120,7 @@ def create_user_card_progress(db: Session, user_id: int, card_id: int) -> models
         last_review=None,
     )
     db.add(rec)
-    db.commit()
+    db.flush()
     db.refresh(rec)
     return rec
 
@@ -926,7 +1177,7 @@ def reset_card_progress(
             progress.reps = 0
 
         db.add(progress)
-        db.commit()
+        db.flush()
         db.refresh(progress)
 
     return card
@@ -954,9 +1205,10 @@ def get_due_reviews(
     user_id: int,
     limit: int,
     offset: int,
+    reading_source_id: int | None = None,
 ):
     require_deck_access(db, user_id, deck_id)
-    now = datetime.utcnow()
+    now = _utc_now()
 
     base_q = (
         db.query(models.Card)
@@ -976,6 +1228,9 @@ def get_due_reviews(
         )
     )
 
+    if reading_source_id is not None:
+        base_q = base_q.filter(models.Card.reading_source_id == reading_source_id)
+
     total = base_q.count()
     items = base_q.offset(offset).limit(limit).all()
 
@@ -989,10 +1244,11 @@ def get_new_cards(
     exclude_card_ids: list[int] | None,
     limit: int,
     offset: int,
+    reading_source_id: int | None = None,
 ):
     require_deck_access(db, user_id, deck_id)
 
-    now = datetime.utcnow()
+    now = _utc_now()
 
     base_q = (
         db.query(models.Card)
@@ -1021,6 +1277,9 @@ def get_new_cards(
     if exclude_card_ids:
         base_q = base_q.filter(models.Card.id.notin_(exclude_card_ids))
 
+    if reading_source_id is not None:
+        base_q = base_q.filter(models.Card.reading_source_id == reading_source_id)
+
     base_q = base_q.order_by(models.Card.id.asc())
 
     total = base_q.count()
@@ -1034,6 +1293,10 @@ def get_new_cards(
 
 def _utc_day_start(now: datetime) -> datetime:
     return datetime(now.year, now.month, now.day)
+
+
+def _utc_now() -> datetime:
+    return datetime.utcnow()
 
 
 def utc_day_bounds(now: datetime):
@@ -1206,7 +1469,7 @@ def _best_streak(active_dates: set[date]) -> int:
 
 
 def count_reviewed_today(db: Session, user_id: int, deck_id: int) -> int:
-    now = datetime.utcnow()
+    now = _utc_now()
     start = _utc_day_start(now)
 
     return (
@@ -1223,7 +1486,7 @@ def count_reviewed_today(db: Session, user_id: int, deck_id: int) -> int:
 
 
 def count_new_introduced_today(db: Session, user_id: int, deck_id: int) -> int:
-    now = datetime.utcnow()
+    now = _utc_now()
     start = _utc_day_start(now)
 
     return (
@@ -1245,8 +1508,9 @@ def count_due_reviews(
     user_id: int,
     deck_id: int | None = None,
     pair_id: int | None = None,
+    reading_source_id: int | None = None,
 ) -> int:
-    now = datetime.utcnow()
+    now = _utc_now()
 
     q = (
         db.query(models.UserCardProgress)
@@ -1281,6 +1545,9 @@ def count_due_reviews(
             models.Deck.target_language_id == pair.target_language_id,
         )
 
+    if reading_source_id is not None:
+        q = q.filter(models.Card.reading_source_id == reading_source_id)
+
     return q.count()
 
 
@@ -1289,8 +1556,9 @@ def count_new_available(
     user_id: int,
     deck_id: int | None = None,
     pair_id: int | None = None,
+    reading_source_id: int | None = None,
 ) -> int:
-    now = datetime.utcnow()
+    now = _utc_now()
 
     q = (
         db.query(models.Card)
@@ -1337,6 +1605,9 @@ def count_new_available(
             models.Deck.target_language_id == pair.target_language_id,
         )
 
+    if reading_source_id is not None:
+        q = q.filter(models.Card.reading_source_id == reading_source_id)
+
     return q.count()
 
 
@@ -1345,6 +1616,7 @@ def get_next_due_at(
     user_id: int,
     deck_id: int | None = None,
     pair_id: int | None = None,
+    reading_source_id: int | None = None,
 ):
     q = (
         db.query(func.min(models.UserCardProgress.due_at))
@@ -1377,6 +1649,9 @@ def get_next_due_at(
             models.Deck.source_language_id == pair.source_language_id,
             models.Deck.target_language_id == pair.target_language_id,
         )
+
+    if reading_source_id is not None:
+        q = q.filter(models.Card.reading_source_id == reading_source_id)
 
     return q.scalar()
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { DecksApi, LanguagesApi } from "../api/endpoints";
+import { LanguagesApi, ReadingSourcesApi } from "../api/endpoints";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import Input from "../components/Input";
@@ -16,18 +16,27 @@ function langLabel(l) {
   return `${l.name}${l.code ? ` (${l.code})` : ""}`;
 }
 
-export default function DecksPage() {
+function normalizeSourceStats(source) {
+  return {
+    ...source,
+    total_cards: Number(source?.total_cards ?? source?.cards_count ?? source?.word_count ?? 0),
+    due_cards: Number(source?.due_cards ?? source?.due_count ?? 0),
+  };
+}
+
+export default function SourcesPage() {
   const nav = useNavigate();
   const { activePair, loading: activePairLoading } = useActivePair();
-  const [page, setPage] = useState(null);
-  const [languages, setLanguages] = useState([]);
 
+  const [sourcesPage, setSourcesPage] = useState(null);
+  const [languages, setLanguages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [name, setName] = useState("");
-  const [sourceLangId, setSourceLangId] = useState("");
-  const [targetLangId, setTargetLangId] = useState("");
+  const [title, setTitle] = useState("");
+  const [author, setAuthor] = useState("");
+  const [kind, setKind] = useState("");
+  const [reference, setReference] = useState("");
   const [creating, setCreating] = useState(false);
 
   const langById = useMemo(() => {
@@ -36,30 +45,31 @@ export default function DecksPage() {
     return m;
   }, [languages]);
 
+  const activeLearning = activePair ? langById.get(activePair.source_language_id) : null;
+  const activeTranslation = activePair ? langById.get(activePair.target_language_id) : null;
+
   async function load() {
     if (!activePair?.id) {
-      setPage({ items: [] });
+      setSourcesPage({ items: [], meta: { total: 0, has_more: false, offset: 0, limit: 50 } });
       setLoading(false);
       return;
     }
 
     setLoading(true);
     setError("");
+
     try {
-      const [decksRes, langsRes] = await Promise.all([
-        DecksApi.list(50, 0, { pair_id: activePair.id }),
+      const [sourcesRes, langsRes] = await Promise.all([
+        ReadingSourcesApi.list({ pair_id: activePair.id, include_stats: true, limit: 200, offset: 0 }),
         LanguagesApi.list(),
       ]);
-
-      setPage(decksRes.data);
-
-      const langs = langsRes.data ?? [];
-      setLanguages(langs);
-
-      if (activePair && !sourceLangId && !targetLangId) {
-        setSourceLangId(String(activePair.source_language_id));
-        setTargetLangId(String(activePair.target_language_id));
-      }
+      const payload = sourcesRes.data ?? { items: [] };
+      const items = Array.isArray(payload?.items) ? payload.items.map(normalizeSourceStats) : [];
+      setSourcesPage({
+        ...payload,
+        items,
+      });
+      setLanguages(langsRes.data ?? []);
     } catch (e) {
       setError(extractError(e));
     } finally {
@@ -67,32 +77,28 @@ export default function DecksPage() {
     }
   }
 
-  async function createDeck(e) {
+  async function createSource(e) {
     e.preventDefault();
-
-    if (!activePair) {
-      setError("Select an active learning pair before creating a deck.");
+    if (!activePair?.id) {
+      setError("Select an active learning pair before creating a source.");
       return;
     }
-
-    const s = Number(activePair.source_language_id);
-    const t = Number(activePair.target_language_id);
-    if (!name.trim()) return;
-    if (!(s > 0 && t > 0 && s !== t)) {
-      setError("Please choose two different languages.");
-      return;
-    }
+    if (!title.trim()) return;
 
     setCreating(true);
     setError("");
     try {
-      await DecksApi.create({
-        name: name.trim(),
-        source_language_id: s,
-        target_language_id: t,
-        deck_type: "users",
+      await ReadingSourcesApi.create({
+        pair_id: activePair.id,
+        title: title.trim(),
+        author: author.trim() ? author.trim() : null,
+        kind: kind.trim() ? kind.trim() : null,
+        reference: reference.trim() ? reference.trim() : null,
       });
-      setName("");
+      setTitle("");
+      setAuthor("");
+      setKind("");
+      setReference("");
       await load();
     } catch (e) {
       setError(extractError(e));
@@ -106,33 +112,17 @@ export default function DecksPage() {
       setLoading(true);
       return;
     }
-    if (!activePair?.id) {
-      setPage({ items: [] });
-      setLoading(false);
-      setError("");
-      return;
-    }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePair?.id, activePairLoading]);
 
-  useEffect(() => {
-    if (!activePair) return;
-    setSourceLangId(String(activePair.source_language_id));
-    setTargetLangId(String(activePair.target_language_id));
-  }, [activePair]);
-
-  const activeLearning = activePair ? langById.get(activePair.source_language_id) : null;
-  const activeTranslation = activePair ? langById.get(activePair.target_language_id) : null;
-  const decks = page?.items ?? [];
+  const sources = sourcesPage?.items ?? [];
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Decks</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Cards format: Learning (front) to Translation (back)
-        </p>
+        <h1 className="text-2xl font-bold">Books & Sources</h1>
+        <p className="mt-1 text-sm text-gray-500">Organize saved words by the text where you found them.</p>
         {activePair ? (
           <p className="mt-2 text-sm text-gray-700">
             Active pair: <span className="font-semibold">{langLabel(activeLearning)}</span> to{" "}
@@ -142,61 +132,42 @@ export default function DecksPage() {
       </div>
 
       <Card>
-        <h2 className="text-lg font-semibold">Create deck</h2>
+        <h2 className="text-lg font-semibold">Add source</h2>
         {!activePair ? (
-          <p className="mt-2 text-sm text-gray-600">Choose an active pair first to create a deck.</p>
+          <p className="mt-2 text-sm text-gray-600">Choose an active pair first.</p>
         ) : (
-          <p className="mt-2 text-sm text-gray-600">Deck language is fixed to the active pair.</p>
+          <p className="mt-2 text-sm text-gray-600">This source will be linked to the active pair.</p>
         )}
-        <form onSubmit={createDeck} className="mt-4 grid gap-4">
+
+        <form onSubmit={createSource} className="mt-4 grid gap-3">
           <label className="grid gap-2">
-            <span className="text-sm text-gray-700">Deck name</span>
-            <Input value={name} onChange={(e) => setName(e.target.value)} required />
+            <span className="text-sm text-gray-700">Title</span>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} required />
           </label>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2">
             <label className="grid gap-2">
-              <span className="text-sm text-gray-700">Learning language</span>
-              <select
-                value={sourceLangId}
-                onChange={(e) => setSourceLangId(e.target.value)}
-                disabled
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black"
-              >
-                <option value="" disabled>
-                  Select...
-                </option>
-                {languages.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {langLabel(l)}
-                  </option>
-                ))}
-              </select>
+              <span className="text-sm text-gray-700">Author (optional)</span>
+              <Input value={author} onChange={(e) => setAuthor(e.target.value)} />
             </label>
-
             <label className="grid gap-2">
-              <span className="text-sm text-gray-700">Translation language</span>
-              <select
-                value={targetLangId}
-                onChange={(e) => setTargetLangId(e.target.value)}
-                disabled
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black"
-              >
-                <option value="" disabled>
-                  Select...
-                </option>
-                {languages.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {langLabel(l)}
-                  </option>
-                ))}
-              </select>
+              <span className="text-sm text-gray-700">Kind (optional)</span>
+              <Input value={kind} onChange={(e) => setKind(e.target.value)} placeholder="book, article..." />
             </label>
           </div>
 
+          <label className="grid gap-2">
+            <span className="text-sm text-gray-700">Reference (optional)</span>
+            <Input
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              placeholder="chapter, location, URL"
+            />
+          </label>
+
           <div>
             <Button variant="primary" type="submit" disabled={creating || !activePair}>
-              {creating ? "Creating..." : "Create"}
+              {creating ? "Creating..." : "Create source"}
             </Button>
           </div>
         </form>
@@ -207,52 +178,46 @@ export default function DecksPage() {
       ) : null}
 
       {loading || activePairLoading ? (
-        <p className="text-sm text-gray-500">Loading decks...</p>
+        <p className="text-sm text-gray-500">Loading sources...</p>
       ) : !activePair ? (
         <Card>
-          <p className="text-sm text-gray-600">Select an active pair to view decks.</p>
+          <p className="text-sm text-gray-600">Select an active pair to view sources.</p>
+        </Card>
+      ) : sources.length === 0 ? (
+        <Card>
+          <p className="text-sm text-gray-600">No sources yet. Add your first book or text source.</p>
         </Card>
       ) : (
-        decks.length === 0 ? (
-          <Card>
-            <p className="text-sm text-gray-600">
-              No decks yet for the active pair. Create your first deck for this language pair.
-            </p>
-          </Card>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {decks.map((d) => {
-            const s = langById.get(d.source_language_id);
-            const t = langById.get(d.target_language_id);
-            const cardsCount = d.cards_count ?? d.cardsCount ?? null;
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {sources.map((source) => (
+            <Card key={source.id} className="transition-shadow hover:shadow-md">
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold">{source.title}</h3>
+                {(source.author || source.kind) && (
+                  <p className="text-sm text-gray-600">
+                    {source.author || "Unknown"}
+                    {source.kind ? ` · ${source.kind}` : ""}
+                  </p>
+                )}
+                {source.reference ? <p className="text-xs text-gray-500">{source.reference}</p> : null}
+                <p className="text-sm text-gray-700">
+                  Words: <span className="font-semibold">{source.total_cards ?? 0}</span>
+                  {" · "}
+                  Due: <span className="font-semibold">{source.due_cards ?? 0}</span>
+                </p>
+                {source.last_added_at ? (
+                  <p className="text-xs text-gray-500">Last added: {new Date(source.last_added_at).toLocaleString()}</p>
+                ) : null}
+              </div>
 
-            return (
-              <Card key={d.id} className="transition-shadow hover:shadow-md">
-                <div className="flex h-full flex-col justify-between gap-4">
-                  <div className="space-y-2">
-                    <h3 className="text-lg font-semibold">{d.name}</h3>
-                    <p className="text-sm text-gray-700">
-                      {s?.code || d.source_language_id} to {t?.code || d.target_language_id}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      Cards: {cardsCount == null ? "-" : cardsCount}
-                    </p>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Button variant="primary" onClick={() => nav(`/app/decks/${d.id}`)}>
-                      Open
-                    </Button>
-                    <Button variant="secondary" onClick={() => nav(`/app/study/${d.id}`)}>
-                      Study
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-            );
-            })}
-          </div>
-        )
+              <div className="mt-4 flex gap-2">
+                <Button variant="primary" onClick={() => nav(`/app/sources/${source.id}`)}>
+                  Open source
+                </Button>
+              </div>
+            </Card>
+          ))}
+        </div>
       )}
     </div>
   );

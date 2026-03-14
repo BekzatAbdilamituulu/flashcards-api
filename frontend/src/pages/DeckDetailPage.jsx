@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { CardsApi, DecksApi } from "../api/endpoints";
+import { CardsApi, DecksApi, ReadingSourcesApi } from "../api/endpoints";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import Input from "../components/Input";
 import { useActivePair } from "../context/ActivePairContext";
+import {
+  collectSelectedCandidates,
+  parseHighlightsWithCandidates,
+} from "../utils/highlightImport";
+import { setCurrentSourceForPair } from "../utils/currentSourceStorage";
+import { memoryStrengthFromCard } from "../utils/memoryStrength";
 
 function extractError(e) {
   if (e?.response?.data) return JSON.stringify(e.response.data);
@@ -12,18 +18,32 @@ function extractError(e) {
 }
 
 const PAGE_LIMIT = 20;
+const CONTENT_KIND_OPTIONS = ["word", "phrase", "quote", "idea"];
 
-export default function DeckDetailPage() {
+function isMainDeck(deck) {
+  return (
+    deck?.deck_type === "main" ||
+    deck?.deck_type === "MAIN" ||
+    deck?.is_main === true ||
+    (typeof deck?.name === "string" && deck.name.toLowerCase().includes("main"))
+  );
+}
+
+export default function SourceDetailPage() {
   const nav = useNavigate();
-  const { deckId } = useParams();
-  const id = Number(deckId);
+  const { sourceId: sourceIdParam } = useParams();
+  const sourceId = Number(sourceIdParam);
+  const editCardId = Number(new URLSearchParams(window.location.search).get("editCardId") || 0);
   const { activePair } = useActivePair();
 
-  const [deck, setDeck] = useState(null);
+  const [source, setSource] = useState(null);
+  const [sourceStats, setSourceStats] = useState(null);
+  const [mainDeck, setMainDeck] = useState(null);
+
   const [cardsPage, setCardsPage] = useState(null);
   const [offset, setOffset] = useState(0);
 
-  const [loadingDeck, setLoadingDeck] = useState(true);
+  const [loadingSource, setLoadingSource] = useState(true);
   const [loadingCards, setLoadingCards] = useState(true);
   const [error, setError] = useState("");
   const [cardsError, setCardsError] = useState("");
@@ -32,85 +52,131 @@ export default function DeckDetailPage() {
   const [front, setFront] = useState("");
   const [back, setBack] = useState("");
   const [example, setExample] = useState("");
+  const [contentKind, setContentKind] = useState("word");
+  const [sourceSentence, setSourceSentence] = useState("");
+  const [sourcePage, setSourcePage] = useState("");
+  const [contextNote, setContextNote] = useState("");
 
   const [editingId, setEditingId] = useState(null);
   const [editFront, setEditFront] = useState("");
   const [editBack, setEditBack] = useState("");
   const [editExample, setEditExample] = useState("");
+  const [editContentKind, setEditContentKind] = useState("word");
+  const [editSourceSentence, setEditSourceSentence] = useState("");
+  const [editSourcePage, setEditSourcePage] = useState("");
+  const [editContextNote, setEditContextNote] = useState("");
   const [savingId, setSavingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
 
-  const cards = useMemo(() => cardsPage?.items ?? [], [cardsPage]);
-  const meta = cardsPage?.meta;
+  const [importText, setImportText] = useState("");
+  const [importPreview, setImportPreview] = useState([]);
+  const [importMsg, setImportMsg] = useState("");
+  const [importing, setImporting] = useState(false);
 
-  async function loadDeck() {
-    setLoadingDeck(true);
+  const cards = useMemo(() => cardsPage?.items ?? [], [cardsPage]);
+
+  const meta = cardsPage?.meta;
+  const selectedCandidateCount = useMemo(
+    () => collectSelectedCandidates(importPreview).length,
+    [importPreview]
+  );
+  const difficultWordsCount = useMemo(() => {
+    return cards.filter((card) => {
+      const status = String(card?.status || "").toLowerCase();
+      return status === "difficult" || status === "hard";
+    }).length;
+  }, [cards]);
+
+  const totalWords = sourceStats?.total_cards ?? meta?.total ?? cards.length;
+  const dueWords = sourceStats?.due_cards ?? 0;
+
+  async function loadSourceAndDeck(nextOffset = offset) {
+    setLoadingSource(true);
+    setLoadingCards(true);
     setError("");
+    setCardsError("");
     try {
-      if (!activePair) {
-        setDeck(null);
+      if (!activePair?.id) {
+        setSource(null);
+        setMainDeck(null);
+        setCardsPage({ items: [], meta: { total: 0, offset: 0, limit: PAGE_LIMIT, has_more: false } });
         setError("Select an active learning pair first.");
         return false;
       }
 
-      const res = await DecksApi.get(id);
-      const loadedDeck = res.data;
-      const matchesActivePair =
-        String(loadedDeck?.source_language_id) === String(activePair.source_language_id) &&
-        String(loadedDeck?.target_language_id) === String(activePair.target_language_id);
+      const [detailRes, decksRes] = await Promise.all([
+        ReadingSourcesApi.getDetail(sourceId, PAGE_LIMIT, nextOffset),
+        DecksApi.list(200, 0, { pair_id: activePair.id }),
+      ]);
 
-      if (!matchesActivePair) {
-        setDeck(null);
-        setError("This deck does not belong to the active learning pair.");
+      const detail = detailRes.data;
+      const loadedSource = detail?.source;
+      if (String(loadedSource?.pair_id) !== String(activePair.id)) {
+        setSource(null);
+        setMainDeck(null);
+        setCardsPage({ items: [], meta: { total: 0, offset: 0, limit: PAGE_LIMIT, has_more: false } });
+        setError("This source does not belong to the active pair.");
         return false;
       }
 
-      setDeck(loadedDeck);
+      const pairDecks = decksRes.data?.items ?? [];
+      const resolvedMainDeck = pairDecks.find((deck) => isMainDeck(deck)) ?? pairDecks[0] ?? null;
+      if (!resolvedMainDeck) {
+        setSource(loadedSource);
+        setSourceStats(loadedSource);
+        setMainDeck(null);
+        setCardsPage({ items: detail?.cards ?? [], meta: detail?.meta ?? { total: 0, offset: 0, limit: PAGE_LIMIT, has_more: false } });
+        setError("No main review deck found for this pair.");
+        return false;
+      }
+
+      setSource(loadedSource);
+      setSourceStats(loadedSource);
+      setMainDeck(resolvedMainDeck);
+      setCardsPage({ items: detail?.cards ?? [], meta: detail?.meta ?? { total: 0, offset: 0, limit: PAGE_LIMIT, has_more: false } });
+      setOffset(nextOffset);
+      setCurrentSourceForPair(activePair.id, loadedSource.id);
       return true;
     } catch (e) {
       setError(extractError(e));
       return false;
     } finally {
-      setLoadingDeck(false);
-    }
-  }
-
-  async function loadCards(nextOffset = offset) {
-    setLoadingCards(true);
-    setCardsError("");
-    try {
-      const res = await CardsApi.list(id, PAGE_LIMIT, nextOffset);
-      setCardsPage(res.data);
-      setOffset(nextOffset);
-    } catch (e) {
-      setCardsError(extractError(e));
-    } finally {
+      setLoadingSource(false);
       setLoadingCards(false);
     }
   }
 
+  async function loadCards(nextOffset = offset) {
+    return loadSourceAndDeck(nextOffset);
+  }
+
   async function createCard(e) {
     e.preventDefault();
-    if (!activePair || !deck) {
-      setCardsError("Select the active pair deck before adding cards.");
-      return;
-    }
-    if (!front.trim() || !back.trim()) return;
+    if (!mainDeck?.id || !front.trim() || !back.trim()) return;
 
     setCreating(true);
     setCardsError("");
     try {
-      await CardsApi.create(id, {
+      await CardsApi.create(mainDeck.id, {
         front: front.trim(),
         back: back.trim(),
         example_sentence: example.trim() ? example.trim() : null,
+        content_kind: contentKind || null,
+        reading_source_id: sourceId,
+        source_sentence: sourceSentence.trim() ? sourceSentence.trim() : null,
+        source_page: sourcePage.trim() ? sourcePage.trim() : null,
+        context_note: contextNote.trim() ? contextNote.trim() : null,
       });
       setFront("");
       setBack("");
       setExample("");
-      await loadCards(offset);
-    } catch (e2) {
-      setCardsError(extractError(e2));
+      setContentKind("word");
+      setSourceSentence("");
+      setSourcePage("");
+      setContextNote("");
+      await Promise.all([loadCards(offset), loadSourceAndDeck()]);
+    } catch (e) {
+      setCardsError(extractError(e));
     } finally {
       setCreating(false);
     }
@@ -121,25 +187,46 @@ export default function DeckDetailPage() {
     setEditFront(card.front ?? "");
     setEditBack(card.back ?? "");
     setEditExample(card.example_sentence ?? "");
+    setEditContentKind(card.content_kind ?? "word");
+    setEditSourceSentence(card.source_sentence ?? "");
+    setEditSourcePage(card.source_page ?? "");
+    setEditContextNote(card.context_note ?? "");
   }
+
+  useEffect(() => {
+    if (!editCardId || !cards.length) return;
+    const targetCard = cards.find((card) => Number(card.id) === Number(editCardId));
+    if (targetCard) {
+      startEdit(targetCard);
+    }
+  }, [editCardId, cards]);
 
   function cancelEdit() {
     setEditingId(null);
     setEditFront("");
     setEditBack("");
     setEditExample("");
+    setEditContentKind("word");
+    setEditSourceSentence("");
+    setEditSourcePage("");
+    setEditContextNote("");
   }
 
-  async function saveEdit(cardId) {
+  async function saveEdit(card) {
     if (!editFront.trim() || !editBack.trim()) return;
 
-    setSavingId(cardId);
+    setSavingId(card.id);
     setCardsError("");
     try {
-      await CardsApi.update(id, cardId, {
+      await CardsApi.update(card.deck_id, card.id, {
         front: editFront.trim(),
         back: editBack.trim(),
         example_sentence: editExample.trim() ? editExample.trim() : null,
+        content_kind: editContentKind || null,
+        reading_source_id: sourceId,
+        source_sentence: editSourceSentence.trim() ? editSourceSentence.trim() : null,
+        source_page: editSourcePage.trim() ? editSourcePage.trim() : null,
+        context_note: editContextNote.trim() ? editContextNote.trim() : null,
       });
       cancelEdit();
       await loadCards(offset);
@@ -150,14 +237,14 @@ export default function DeckDetailPage() {
     }
   }
 
-  async function deleteCard(cardId) {
-    const ok = window.confirm("Delete this card?");
+  async function deleteCard(card) {
+    const ok = window.confirm("Delete this entry?");
     if (!ok) return;
 
-    setDeletingId(cardId);
+    setDeletingId(card.id);
     setCardsError("");
     try {
-      await CardsApi.delete(id, cardId);
+      await CardsApi.delete(card.deck_id, card.id);
 
       const currentCount = cards.length;
       if (currentCount === 1 && offset > 0) {
@@ -166,6 +253,7 @@ export default function DeckDetailPage() {
       } else {
         await loadCards(offset);
       }
+      await loadSourceAndDeck();
     } catch (e) {
       setCardsError(extractError(e));
     } finally {
@@ -173,18 +261,131 @@ export default function DeckDetailPage() {
     }
   }
 
+  function previewHighlights() {
+    const parsed = parseHighlightsWithCandidates(importText);
+    setImportPreview(parsed);
+    if (!parsed.length) {
+      setImportMsg("No highlights found. Paste exported highlights or reading notes text.");
+      return;
+    }
+    const totalCandidates = collectSelectedCandidates(parsed).length;
+    setImportMsg(`Preview ready: ${parsed.length} highlight(s), ${totalCandidates} selected candidate(s).`);
+  }
+
+  function onImportFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImportText(String(reader.result || ""));
+      setImportMsg("");
+    };
+    reader.readAsText(file);
+  }
+
+  function toggleImportItem(itemId) {
+    setImportPreview((current) =>
+      current.map((item) => {
+        if (item.id !== itemId) return item;
+        const allSelected = (item.candidates || []).every((candidate) => candidate.selected);
+        return {
+          ...item,
+          candidates: (item.candidates || []).map((candidate) => ({
+            ...candidate,
+            selected: !allSelected,
+          })),
+        };
+      })
+    );
+  }
+
+  function updateImportItem(itemId, patch) {
+    setImportPreview((current) =>
+      current.map((item) => (item.id === itemId ? { ...item, ...patch } : item))
+    );
+  }
+
+  function toggleImportCandidate(itemId, candidateId) {
+    setImportPreview((current) =>
+      current.map((item) => {
+        if (item.id !== itemId) return item;
+        return {
+          ...item,
+          candidates: (item.candidates || []).map((candidate) =>
+            candidate.id === candidateId ? { ...candidate, selected: !candidate.selected } : candidate
+          ),
+        };
+      })
+    );
+  }
+
+  function updateImportCandidate(itemId, candidateId, patch) {
+    setImportPreview((current) =>
+      current.map((item) => {
+        if (item.id !== itemId) return item;
+        return {
+          ...item,
+          candidates: (item.candidates || []).map((candidate) =>
+            candidate.id === candidateId ? { ...candidate, ...patch } : candidate
+          ),
+        };
+      })
+    );
+  }
+
+  async function importSelectedHighlights() {
+    if (!mainDeck?.id) return;
+    const selectedItems = collectSelectedCandidates(importPreview);
+    if (!selectedItems.length) {
+      setImportMsg("Select at least one parsed highlight.");
+      return;
+    }
+
+    setImporting(true);
+    setImportMsg("");
+    let created = 0;
+    let failed = 0;
+
+    for (const item of selectedItems) {
+      try {
+        await CardsApi.create(mainDeck.id, {
+          front: item.text.trim(),
+          back: "",
+          content_kind: item.kind || "quote",
+          reading_source_id: sourceId,
+          source_sentence: item.sourceSentence ? item.sourceSentence.trim() : null,
+          example_sentence: item.sourceSentence ? item.sourceSentence.trim() : null,
+          source_page: item.sourcePage ? item.sourcePage.trim() : null,
+          context_note: source?.title ? `Source title: ${source.title}` : null,
+        });
+        created += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+
+    await Promise.all([loadCards(offset), loadSourceAndDeck()]);
+    setImportMsg(`Imported ${created} item(s)${failed ? `, failed ${failed}` : ""}.`);
+    setImportPreview((current) =>
+      current.map((item) => ({
+        ...item,
+        candidates: (item.candidates || []).map((candidate) => ({ ...candidate, selected: false })),
+      }))
+    );
+    setImporting(false);
+  }
+
   useEffect(() => {
     async function loadAll() {
-      if (!(id > 0)) {
-        setError("Invalid deck id.");
-        setLoadingDeck(false);
+      if (!(sourceId > 0)) {
+        setError("Invalid source id.");
+        setLoadingSource(false);
         setLoadingCards(false);
         return;
       }
 
-      const deckOk = await loadDeck();
-      if (deckOk) {
-        loadCards(0);
+      const ok = await loadSourceAndDeck();
+      if (ok) {
+        await loadCards(0);
       } else {
         setLoadingCards(false);
       }
@@ -192,28 +393,48 @@ export default function DeckDetailPage() {
 
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, activePair?.id]);
+  }, [sourceId, activePair?.id]);
 
   return (
     <div className="space-y-4">
-      <Link to="/app/decks" className="text-sm text-gray-500 underline">
-        Back to decks
+      <Link to="/app/sources" className="text-sm text-gray-500 underline">
+        Back to sources
       </Link>
 
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">
-            {loadingDeck ? "Loading deck..." : deck?.name || `Deck #${id}`}
+            {loadingSource ? "Loading source..." : source?.title || `Source #${sourceId}`}
           </h1>
-          {deck ? (
+          {source ? (
             <p className="mt-1 text-sm text-gray-500">
-              #{deck.id} · {deck.source_language_id} to {deck.target_language_id} · {deck.deck_type}
+              {source.author ? `${source.author} · ` : ""}
+              {source.kind ? `${source.kind} · ` : ""}
+              {source.reference || ""}
             </p>
           ) : null}
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-600 sm:grid-cols-4">
+            <div className="rounded-lg border border-gray-200 bg-white px-2 py-2">
+              Total words: <span className="font-semibold text-gray-900">{totalWords}</span>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white px-2 py-2">
+              Due: <span className="font-semibold text-gray-900">{dueWords}</span>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white px-2 py-2">
+              Added today: <span className="font-semibold text-gray-900">{sourceStats?.added_today ?? 0}</span>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white px-2 py-2">
+              Difficult: <span className="font-semibold text-gray-900">{difficultWordsCount}</span>
+            </div>
+          </div>
         </div>
 
-        <Button variant="primary" onClick={() => nav(`/app/study/${id}`)}>
-          Study
+        <Button
+          variant="primary"
+          onClick={() => (mainDeck?.id ? nav(`/app/study/${mainDeck.id}?sourceId=${sourceId}`) : null)}
+          disabled={!mainDeck?.id}
+        >
+          Review vocabulary
         </Button>
       </div>
 
@@ -222,22 +443,133 @@ export default function DeckDetailPage() {
       ) : null}
 
       <Card>
-        <h2 className="text-lg font-semibold">Add card</h2>
+        <h2 className="text-lg font-semibold">Import highlights</h2>
+        <p className="mt-1 text-sm text-gray-600">
+          Paste Kindle highlights or reading notes. You can also paste text from PDF highlights/notes.
+        </p>
+        <div className="mt-3 grid gap-3">
+          <textarea
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            placeholder="Paste highlights here..."
+            className="min-h-36 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="file"
+              accept=".txt,text/plain"
+              onChange={(e) => onImportFile(e.target.files?.[0])}
+              className="text-sm"
+            />
+            <Button variant="secondary" type="button" onClick={previewHighlights}>
+              Preview parsed items
+            </Button>
+            <Button
+              variant="primary"
+              type="button"
+              onClick={importSelectedHighlights}
+              disabled={importing || selectedCandidateCount === 0 || !mainDeck?.id}
+            >
+              {importing ? "Importing..." : "Import selected"}
+            </Button>
+          </div>
+          {importMsg ? <p className="text-xs text-gray-600">{importMsg}</p> : null}
+        </div>
+
+        {importPreview.length ? (
+          <div className="mt-4 space-y-3">
+            {importPreview.map((item) => (
+              <div key={item.id} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={(item.candidates || []).some((candidate) => candidate.selected)}
+                    onChange={() => toggleImportItem(item.id)}
+                  />
+                  <span className="text-xs text-gray-500">Select all candidates in this highlight</span>
+                </div>
+                {item.sourceTitle ? <p className="mt-2 text-xs text-gray-500">Title: {item.sourceTitle}</p> : null}
+                <textarea
+                  value={item.text}
+                  onChange={(e) => updateImportItem(item.id, { text: e.target.value })}
+                  className="mt-2 min-h-20 w-full rounded border border-gray-300 bg-white px-2 py-1 text-sm"
+                />
+                <Input
+                  className="mt-2"
+                  value={item.sourcePage}
+                  onChange={(e) => updateImportItem(item.id, { sourcePage: e.target.value })}
+                  placeholder="Page/location (optional)"
+                />
+                {item.candidates?.length ? (
+                  <div className="mt-3 space-y-2">
+                    <p className="text-xs font-medium text-gray-600">Candidate words/phrases</p>
+                    {item.candidates.map((candidate) => (
+                      <div
+                        key={candidate.id}
+                        className="flex flex-wrap items-center gap-2 rounded border border-gray-200 bg-white px-2 py-2"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={candidate.selected}
+                          onChange={() => toggleImportCandidate(item.id, candidate.id)}
+                        />
+                        <span className="rounded bg-gray-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-gray-600">
+                          {candidate.kind}
+                        </span>
+                        <Input
+                          className="min-w-[14rem] flex-1"
+                          value={candidate.text}
+                          onChange={(e) =>
+                            updateImportCandidate(item.id, candidate.id, { text: e.target.value })
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </Card>
+
+      <Card>
+        <h2 className="text-lg font-semibold">Save word</h2>
         <form onSubmit={createCard} className="mt-4 grid gap-3">
-          <Input placeholder="Front" value={front} onChange={(e) => setFront(e.target.value)} />
-          <Input placeholder="Back" value={back} onChange={(e) => setBack(e.target.value)} />
+          <Input placeholder="Word / entry" value={front} onChange={(e) => setFront(e.target.value)} />
+          <Input placeholder="Translation / meaning" value={back} onChange={(e) => setBack(e.target.value)} />
+          <label className="grid gap-2">
+            <span className="text-sm text-gray-700">Entry kind</span>
+            <select
+              value={contentKind}
+              onChange={(e) => setContentKind(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black"
+            >
+              {CONTENT_KIND_OPTIONS.map((kind) => (
+                <option key={kind} value={kind}>
+                  {kind}
+                </option>
+              ))}
+            </select>
+          </label>
           <Input
-            placeholder="Example (optional)"
+            placeholder="Source sentence (optional)"
             value={example}
             onChange={(e) => setExample(e.target.value)}
           />
+          <Input
+            placeholder="Source page (optional)"
+            value={sourcePage}
+            onChange={(e) => setSourcePage(e.target.value)}
+          />
+          <Input
+            placeholder="Context note (optional)"
+            value={contextNote}
+            onChange={(e) => setContextNote(e.target.value)}
+          />
           <div className="flex flex-wrap gap-2">
-            <Button
-              variant="primary"
-              type="submit"
-              disabled={creating || !front.trim() || !back.trim() || !activePair || !deck}
-            >
-              {creating ? "Adding..." : "Add card"}
+            <Button variant="primary" type="submit" disabled={creating || !front.trim() || !back.trim() || !mainDeck?.id}>
+              {creating ? "Saving..." : "Save word"}
             </Button>
             <Button variant="secondary" type="button" onClick={() => loadCards(offset)} disabled={loadingCards}>
               {loadingCards ? "Refreshing..." : "Refresh"}
@@ -251,11 +583,17 @@ export default function DeckDetailPage() {
       ) : null}
 
       <div className="space-y-3">
-        {loadingCards ? <p className="text-sm text-gray-500">Loading cards...</p> : null}
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold">Vocabulary from this source</h2>
+          </div>
+        </Card>
+
+        {loadingCards ? <p className="text-sm text-gray-500">Loading entries...</p> : null}
 
         {!loadingCards && cards.length === 0 ? (
           <Card>
-            <p className="text-gray-700">No cards yet.</p>
+            <p className="text-gray-700">No words in this source yet.</p>
           </Card>
         ) : null}
 
@@ -271,11 +609,40 @@ export default function DeckDetailPage() {
                     <div className="grid gap-3">
                       <Input value={editFront} onChange={(e) => setEditFront(e.target.value)} />
                       <Input value={editBack} onChange={(e) => setEditBack(e.target.value)} />
+                      <label className="grid gap-2">
+                        <span className="text-sm text-gray-700">Entry kind</span>
+                        <select
+                          value={editContentKind}
+                          onChange={(e) => setEditContentKind(e.target.value)}
+                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black"
+                        >
+                          {CONTENT_KIND_OPTIONS.map((kind) => (
+                            <option key={kind} value={kind}>
+                              {kind}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                       <Input value={editExample} onChange={(e) => setEditExample(e.target.value)} />
+                      <Input
+                        value={editSourceSentence}
+                        onChange={(e) => setEditSourceSentence(e.target.value)}
+                        placeholder="Source sentence"
+                      />
+                      <Input
+                        value={editSourcePage}
+                        onChange={(e) => setEditSourcePage(e.target.value)}
+                        placeholder="Source page"
+                      />
+                      <Input
+                        value={editContextNote}
+                        onChange={(e) => setEditContextNote(e.target.value)}
+                        placeholder="Context note"
+                      />
                       <div className="flex flex-wrap gap-2">
                         <Button
                           variant="primary"
-                          onClick={() => saveEdit(card.id)}
+                          onClick={() => saveEdit(card)}
                           disabled={isSaving || !editFront.trim() || !editBack.trim()}
                         >
                           {isSaving ? "Saving..." : "Save"}
@@ -288,16 +655,32 @@ export default function DeckDetailPage() {
                   ) : (
                     <div className="space-y-2">
                       <div>
-                        <p className="text-xs text-gray-500">Front</p>
+                        <p className="text-xs text-gray-500">Word / entry</p>
                         <p className="text-gray-700">{card.front}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-500">Back</p>
+                        <p className="text-xs text-gray-500">Translation / meaning</p>
                         <p className="text-gray-700">{card.back}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-500">Example</p>
-                        <p className="text-gray-700">{card.example_sentence || "-"}</p>
+                        <p className="text-xs text-gray-500">Source sentence</p>
+                        <p className="text-gray-700">{card.source_sentence || card.example_sentence || "-"}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Memory strength</p>
+                        <p className="text-gray-700">{card.memory_strength || memoryStrengthFromCard(card)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Word type</p>
+                        <p className="text-gray-700">{card.content_kind || "-"}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Source page</p>
+                        <p className="text-gray-700">{card.source_page || "-"}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Context note</p>
+                        <p className="text-gray-700">{card.context_note || "-"}</p>
                       </div>
                       <div className="flex flex-wrap gap-2 pt-1">
                         <Button
@@ -309,7 +692,7 @@ export default function DeckDetailPage() {
                         </Button>
                         <Button
                           variant="danger"
-                          onClick={() => deleteCard(card.id)}
+                          onClick={() => deleteCard(card)}
                           disabled={isDeleting || editingId != null || savingId != null}
                         >
                           {isDeleting ? "Deleting..." : "Delete"}

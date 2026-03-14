@@ -44,7 +44,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gray-50 px-4 flex items-center justify-center">
       <Card className="w-full max-w-[400px]">
         <h1 className="text-2xl font-bold">Login</h1>
-        <p className="mt-1 text-sm text-gray-500">Welcome back to Flashcards.</p>
+        <p className="mt-1 text-sm text-gray-500">Welcome back to your reading vocabulary companion.</p>
 
         <form onSubmit={onSubmit} className="mt-6 grid gap-4">
           <label className="grid gap-2">

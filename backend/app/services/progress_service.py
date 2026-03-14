@@ -1,11 +1,13 @@
 from __future__ import annotations
+from datetime import date
 from sqlalchemy.orm import Session
 from dataclasses import dataclass
-from app import crud
+from app import crud, models
 from app.services.deck_service import resolve_main_deck_by_pair_or_deck
 from app.services.pair_service import resolve_user_pair
+from app.services.errors import NotFoundError, ValidationError
+from app.utils.dates import month_bounds
 from app.utils.time import bishkek_today
-from app import models
 
 @dataclass
 class QueueSnapshot:
@@ -20,6 +22,157 @@ class DailyQuotaSnapshot:
     new_introduced_today: int
     remaining_review_quota: int
     remaining_new_quota: int
+
+
+def _resolve_pair_id_or_raise(
+    db: Session,
+    *,
+    user_id: int,
+    pair_id: int | None,
+) -> int:
+    if pair_id is not None:
+        return pair_id
+    pair = crud.get_default_learning_pair(db, user_id)
+    if not pair:
+        raise ValidationError("No default learning pair set")
+    return pair.id
+
+
+def daily_progress_range(
+    db: Session,
+    *,
+    user_id: int,
+    from_date: date,
+    to_date: date,
+    pair_id: int | None,
+) -> dict:
+    if from_date > to_date:
+        raise ValidationError("from_date must be <= to_date")
+    resolved_pair_id = _resolve_pair_id_or_raise(
+        db,
+        user_id=user_id,
+        pair_id=pair_id,
+    )
+    items = crud.get_daily_progress_filled(db, user_id, resolved_pair_id, from_date, to_date)
+    return {
+        "from_date": from_date,
+        "to_date": to_date,
+        "items": [
+            {
+                "date": r.date,
+                "cards_done": r.cards_done,
+                "reviews_done": r.reviews_done,
+                "new_done": r.new_done,
+            }
+            for r in items
+        ],
+    }
+
+
+def monthly_progress_range(
+    db: Session,
+    *,
+    user_id: int,
+    year: int,
+    month: int,
+    pair_id: int | None,
+) -> dict:
+    resolved_pair_id = _resolve_pair_id_or_raise(
+        db,
+        user_id=user_id,
+        pair_id=pair_id,
+    )
+    try:
+        from_date, to_date = month_bounds(year, month)
+    except ValueError as e:
+        raise ValidationError(str(e))
+    items = crud.get_daily_progress_filled(db, user_id, resolved_pair_id, from_date, to_date)
+    return {
+        "from_date": from_date,
+        "to_date": to_date,
+        "items": [
+            {
+                "date": r.date,
+                "cards_done": r.cards_done,
+                "reviews_done": r.reviews_done,
+                "new_done": r.new_done,
+            }
+            for r in items
+        ],
+    }
+
+
+def streak_for_user(
+    db: Session,
+    *,
+    user_id: int,
+    threshold: int,
+    pair_id: int | None,
+) -> dict:
+    resolved_pair_id = _resolve_pair_id_or_raise(
+        db,
+        user_id=user_id,
+        pair_id=pair_id,
+    )
+    return crud.get_streak(db, user_id, resolved_pair_id, threshold=threshold)
+
+
+def today_added_for_user(
+    db: Session,
+    *,
+    user_id: int,
+    deck_id: int | None,
+    pair_id: int | None,
+) -> dict:
+    d = bishkek_today()
+    try:
+        deck = resolve_main_deck_by_pair_or_deck(
+            db,
+            user_id=user_id,
+            deck_id=deck_id,
+            pair_id=pair_id,
+        )
+    except LookupError as e:
+        raise NotFoundError(str(e))
+    except ValueError as e:
+        raise ValidationError(str(e))
+    count = crud.count_cards_created_on_day(db, user_id, d, deck_id=deck.id)
+    return {"date": d, "count": count}
+
+
+def reset_my_progress_for_deck(
+    db: Session,
+    *,
+    user_id: int,
+    deck_id: int,
+) -> dict:
+    deck = (
+        db.query(models.Deck)
+        .join(models.DeckAccess, models.DeckAccess.deck_id == models.Deck.id)
+        .filter(
+            models.Deck.id == deck_id,
+            models.DeckAccess.user_id == user_id,
+        )
+        .first()
+    )
+    if not deck:
+        raise NotFoundError("Deck not found or no access")
+
+    card_ids_subq = db.query(models.Card.id).filter(models.Card.deck_id == deck_id).subquery()
+    try:
+        deleted = (
+            db.query(models.UserCardProgress)
+            .filter(
+                models.UserCardProgress.user_id == user_id,
+                models.UserCardProgress.card_id.in_(card_ids_subq),
+            )
+            .delete(synchronize_session=False)
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return {"deck_id": deck_id, "deleted": deleted}
 
 def get_queue_snapshot(
     db: Session,

@@ -34,20 +34,20 @@ export default function AppLayout() {
     <div className="min-h-screen bg-stone-50 text-black">
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col md:max-w-7xl md:flex-row">
         <aside className="hidden w-60 border-r border-stone-200 bg-white p-6 md:flex md:flex-col">
-          <div className="text-2xl font-bold">Flashcards</div>
+          <div className="text-2xl font-bold">Cortex Reader</div>
 
           <nav className="mt-8 flex flex-col gap-2">
             <NavLink to="/app" end className={sideLinkClass}>
               Dashboard
             </NavLink>
             <NavLink to="/app/decks" className={sideLinkClass}>
-              My Decks
+              My Sources
             </NavLink>
             <NavLink to="/app/library" className={sideLinkClass}>
               Library
             </NavLink>
             <NavLink to="/app/study" className={sideLinkClass}>
-              Study
+              Reading Review
             </NavLink>
             <NavLink to="/app/progress" className={sideLinkClass}>
               Progress
@@ -79,7 +79,7 @@ export default function AppLayout() {
             Dashboard
           </NavLink>
           <NavLink to="/app/decks" className={bottomLinkClass}>
-            My Decks
+            Sources
           </NavLink>
           <NavLink to="/app/library" className={bottomLinkClass}>
             Library

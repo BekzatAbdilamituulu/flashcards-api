@@ -3,12 +3,12 @@ from __future__ import annotations
 import re
 from typing import Optional, Tuple
 
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import crud, models, schemas
 from app.services import deck_service
 from app.services.pair_service import resolve_pair_for_user
+from app.services.reading_source_service import resolve_or_create_reading_source
 
 # Matches: em dash, en dash, minus sign, hyphen variants, colon, semicolon, equals, tab, pipe
 SPLIT_RE = re.compile(r"\s*(?:—|–|−|-|‐|:|;|=|\t|\|)\s*", re.UNICODE)
@@ -68,27 +68,58 @@ def quick_add_word(
     user_id: int,
     payload: schemas.InboxWordIn,
 ) -> dict:
-    deck = resolve_inbox_deck(
-        db,
-        user_id=user_id,
-        source_language_id=payload.source_language_id,
-        target_language_id=payload.target_language_id,
-    )
+    try:
+        deck = resolve_inbox_deck(
+            db,
+            user_id=user_id,
+            source_language_id=payload.source_language_id,
+            target_language_id=payload.target_language_id,
+        )
+        pair = resolve_pair_for_user(
+            db,
+            user_id=user_id,
+            source_language_id=deck.source_language_id,
+            target_language_id=deck.target_language_id,
+            auto_create_by_langs=False,
+            use_default_if_missing=False,
+        )
+        reading_source = resolve_or_create_reading_source(
+            db,
+            user_id=user_id,
+            pair_id=pair.id,
+            reading_source_id=payload.reading_source_id,
+            source_title=payload.source_title,
+            source_author=payload.source_author,
+            source_kind=payload.source_kind,
+            source_reference=payload.source_reference,
+            create_if_missing=True,
+        )
 
-    back = (payload.back or "").strip()
-    example = payload.example_sentence.strip() if payload.example_sentence else None
+        back = (payload.back or "").strip()
+        example = payload.example_sentence.strip() if payload.example_sentence else None
 
-    card = crud.create_card(
-        db,
-        deck_id=deck.id,
-        user_id=user_id,
-        front=payload.front.strip(),
-        back=back,
-        example_sentence=example,
-        auto_fill=True,
-    )
-
-    return {"deck_id": deck.id, "card": card}
+        card = crud.create_card(
+            db,
+            deck_id=deck.id,
+            user_id=user_id,
+            front=payload.front.strip(),
+            back=back,
+            example_sentence=example,
+            reading_source_id=reading_source.id if reading_source else None,
+            source_title=payload.source_title,
+            source_author=payload.source_author,
+            source_kind=payload.source_kind,
+            source_reference=payload.source_reference,
+            source_sentence=payload.source_sentence,
+            source_page=payload.source_page,
+            context_note=payload.context_note,
+            auto_fill=True,
+        )
+        db.commit()
+        return {"deck_id": deck.id, "card": card}
+    except Exception:
+        db.rollback()
+        raise
 
 
 def bulk_import(
@@ -106,17 +137,24 @@ def bulk_import(
 
     lines = payload.text.splitlines()
     results: list[schemas.BulkItemResult] = []
-    created = 0
-    skipped = 0
-    failed = 0
+    created_count = 0
+    preview_count = 0
+    duplicate_count = 0
+    invalid_count = 0
+    failed_count = 0
     seen_norms: set[str] = set()
 
-    for line in lines:
+    for idx, line in enumerate(lines):
         parsed = _split_line(line, payload.delimiter)
         if not parsed:
-            skipped += 1
+            invalid_count += 1
             results.append(
-                schemas.BulkItemResult(line=line, status="skipped", reason="empty/invalid")
+                schemas.BulkItemResult(
+                    index=idx,
+                    line=line,
+                    status="invalid",
+                    reason="empty/invalid",
+                )
             )
             continue
 
@@ -125,70 +163,129 @@ def bulk_import(
         back = (back or "").strip()
 
         if not front:
-            skipped += 1
+            invalid_count += 1
             results.append(
-                schemas.BulkItemResult(line=line, status="skipped", reason="empty front")
+                schemas.BulkItemResult(
+                    index=idx,
+                    line=line,
+                    front=front,
+                    status="invalid",
+                    reason="empty front",
+                )
             )
             continue
 
         front_norm = crud.normalize_front(front)
         if front_norm in seen_norms:
-            skipped += 1
+            duplicate_count += 1
             results.append(
-                schemas.BulkItemResult(line=line, status="skipped", reason="duplicate in paste")
+                schemas.BulkItemResult(
+                    index=idx,
+                    line=line,
+                    front=front,
+                    status="duplicate",
+                    reason="duplicate in paste",
+                )
             )
             continue
         seen_norms.add(front_norm)
 
         if crud.card_exists_in_deck(db, deck.id, front):
-            skipped += 1
+            duplicate_count += 1
             results.append(
-                schemas.BulkItemResult(line=line, status="skipped", reason="duplicate")
+                schemas.BulkItemResult(
+                    index=idx,
+                    line=line,
+                    front=front,
+                    status="duplicate",
+                    reason="duplicate",
+                )
             )
             continue
 
         if payload.dry_run:
-            created += 1
+            preview_count += 1
             results.append(
-                schemas.BulkItemResult(line=line, status="preview", reason="dry_run")
+                schemas.BulkItemResult(
+                    index=idx,
+                    line=line,
+                    front=front,
+                    status="preview",
+                    reason="dry_run",
+                )
             )
             continue
 
         try:
-            card = crud.create_card(
-                db,
-                deck_id=deck.id,
-                user_id=user_id,
-                front=front,
-                back=back,
-                example_sentence=None,
-                auto_fill=False,
-            )
-            created += 1
+            with db.begin_nested():
+                card = crud.create_card(
+                    db,
+                    deck_id=deck.id,
+                    user_id=user_id,
+                    front=front,
+                    back=back,
+                    example_sentence=None,
+                    auto_fill=False,
+                )
+            created_count += 1
             results.append(
-                schemas.BulkItemResult(line=line, status="created", card_id=card.id)
+                schemas.BulkItemResult(
+                    index=idx,
+                    line=line,
+                    front=front,
+                    status="created",
+                    card_id=card.id,
+                )
             )
         except ValueError as e:
-            skipped += 1
+            msg = str(e)
+            if "Duplicate word in this deck" in msg:
+                duplicate_count += 1
+                status = "duplicate"
+            else:
+                invalid_count += 1
+                status = "invalid"
             results.append(
-                schemas.BulkItemResult(line=line, status="skipped", reason=str(e))
-            )
-        except IntegrityError:
-            db.rollback()
-            skipped += 1
-            results.append(
-                schemas.BulkItemResult(line=line, status="skipped", reason="duplicate")
+                schemas.BulkItemResult(
+                    index=idx,
+                    line=line,
+                    front=front,
+                    status=status,
+                    reason=msg,
+                )
             )
         except Exception as e:
-            failed += 1
+            failed_count += 1
             results.append(
-                schemas.BulkItemResult(line=line, status="failed", reason=str(e))
+                schemas.BulkItemResult(
+                    index=idx,
+                    line=line,
+                    front=front,
+                    status="failed",
+                    reason=str(e),
+                )
             )
+
+    if payload.dry_run:
+        # Ensure preview mode never persists writes (e.g., auto-created pair/deck).
+        db.rollback()
+    else:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
 
     return {
         "deck_id": deck.id,
-        "created": created,
-        "skipped": skipped,
-        "failed": failed,
+        "created_count": created_count,
+        "preview_count": preview_count,
+        "duplicate_count": duplicate_count,
+        "invalid_count": invalid_count,
+        "failed_count": failed_count,
+        # Legacy compatibility fields
+        "created": created_count,
+        "skipped": duplicate_count + invalid_count,
+        "failed": failed_count,
         "results": results,
     }

@@ -19,6 +19,15 @@ class CardBase(BaseModel):
     front: str
     back: str
     example_sentence: Optional[str] = None
+    content_kind: Optional[str] = None
+    reading_source_id: Optional[int] = None
+    source_title: Optional[str] = None
+    source_author: Optional[str] = None
+    source_kind: Optional[str] = None
+    source_reference: Optional[str] = None
+    source_sentence: Optional[str] = None
+    source_page: Optional[str] = None
+    context_note: Optional[str] = None
 
 
 class CardCreate(CardBase):
@@ -29,12 +38,64 @@ class CardUpdate(BaseModel):
     front: Optional[str] = None
     back: Optional[str] = None
     example_sentence: Optional[str] = None
+    content_kind: Optional[str] = None
+    reading_source_id: Optional[int] = None
+    source_title: Optional[str] = None
+    source_author: Optional[str] = None
+    source_kind: Optional[str] = None
+    source_reference: Optional[str] = None
+    source_sentence: Optional[str] = None
+    source_page: Optional[str] = None
+    context_note: Optional[str] = None
+
+
+class ReadingSourceBase(BaseModel):
+    title: str
+    author: Optional[str] = None
+    kind: Optional[str] = None
+    reference: Optional[str] = None
+
+
+class ReadingSourceCreate(ReadingSourceBase):
+    pair_id: int
+
+
+class ReadingSourceUpdate(BaseModel):
+    title: Optional[str] = None
+    author: Optional[str] = None
+    kind: Optional[str] = None
+    reference: Optional[str] = None
+
+
+class ReadingSourceOut(ReadingSourceBase):
+    id: int
+    user_id: int
+    pair_id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ReadingSourceOutWithStats(ReadingSourceOut):
+    total_cards: int = 0
+    due_cards: int = 0
+    added_today: int = 0
+    last_added_at: Optional[datetime] = None
+
+
+class SourceDetailOut(BaseModel):
+    source: ReadingSourceOutWithStats
+    cards: List["CardOut"]
+    meta: "PageMeta"
 
 
 class CardOut(CardBase):
     id: int
     deck_id: int
     created_at: datetime
+    reading_source: Optional[ReadingSourceOut] = None
+    memory_strength: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -46,6 +107,14 @@ class InboxWordIn(BaseModel):
     front: str = Field(min_length=1, max_length=200)
     back: Optional[str] = Field(default=None, max_length=500)
     example_sentence: Optional[str] = Field(default=None, max_length=500)
+    reading_source_id: Optional[int] = Field(default=None, ge=1)
+    source_title: Optional[str] = Field(default=None, max_length=300)
+    source_author: Optional[str] = Field(default=None, max_length=200)
+    source_kind: Optional[str] = Field(default=None, max_length=50)
+    source_reference: Optional[str] = Field(default=None, max_length=1000)
+    source_sentence: Optional[str] = Field(default=None, max_length=1000)
+    source_page: Optional[str] = Field(default=None, max_length=100)
+    context_note: Optional[str] = Field(default=None, max_length=1000)
 
     # optional: allow client to define languages for Inbox creation
     source_language_id: Optional[int] = None
@@ -53,9 +122,11 @@ class InboxWordIn(BaseModel):
 
 class ImportSelectedCardsIn(BaseModel):
     card_ids: list[int]
+    dry_run: bool = False
 
 class ImportSelectedCardItemOut(BaseModel):
     library_card_id: int
+    status: str
     imported: bool
     skipped: bool
     reason: str | None = None
@@ -64,6 +135,11 @@ class ImportSelectedCardItemOut(BaseModel):
 
 class ImportSelectedCardsOut(BaseModel):
     results: list[ImportSelectedCardItemOut]
+    created_count: int
+    preview_count: int
+    duplicate_count: int
+    invalid_count: int
+    failed_count: int
     imported_count: int
     skipped_count: int
 
@@ -82,14 +158,22 @@ class InboxBulkIn(BaseModel):
 
 
 class BulkItemResult(BaseModel):
+    index: int
     line: str
-    status: str  # "created" | "skipped" | "failed"
+    front: Optional[str] = None
+    status: str  # "preview" | "created" | "duplicate" | "invalid" | "failed"
     reason: Optional[str] = None
     card_id: Optional[int] = None
 
 
 class InboxBulkOut(BaseModel):
     deck_id: int
+    created_count: int
+    preview_count: int
+    duplicate_count: int
+    invalid_count: int
+    failed_count: int
+    # Legacy fields kept for compatibility.
     created: int
     skipped: int
     failed: int
@@ -157,16 +241,22 @@ class DeckCreate(BaseModel):
     pair_id: int | None = None
     source_language_id: int | None = None
     target_language_id: int | None = None
+    source_type: Optional[str] = None
+    author_name: Optional[str] = None
 
 class DeckOut(DeckBase):
     id: int
     deck_type: str
+    source_type: Optional[str] = None
+    author_name: Optional[str] = None
     model_config = ConfigDict(from_attributes=True, use_enum_values=True)
 
 
 class DeckUpdate(BaseModel):
     name: Optional[str] = None
     is_public: Optional[bool] = None
+    source_type: Optional[str] = None
+    author_name: Optional[str] = None
 
 
 class DeckStatus(str, Enum):
@@ -187,10 +277,11 @@ class LibraryDeckOut(BaseModel):
 
 
 class ImportCardIn(BaseModel):
-    pass
+    dry_run: bool = False
 
 
 class ImportCardOut(BaseModel):
+    status: str
     imported: bool
     skipped: bool
     reason: Optional[str] = None

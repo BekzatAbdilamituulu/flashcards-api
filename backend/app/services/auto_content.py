@@ -4,7 +4,6 @@ import asyncio
 import os
 import re
 from typing import Optional
-from sqlalchemy.exc import IntegrityError
 
 import httpx
 from sqlalchemy.orm import Session
@@ -151,10 +150,7 @@ def save_translation_cache(
         hits=0,
     )
     db.add(row)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
+    db.flush()
 
 
 def find_cached_example(db: Session, *, src_lang_id: int, tgt_lang_id: int, text_raw: str):
@@ -184,7 +180,7 @@ def save_example_cache(
         hits=0,
     )
     db.add(row)
-    db.commit()
+    db.flush()
 
 
 # ==============================

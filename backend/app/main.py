@@ -23,6 +23,7 @@ from .routers import (
     languages,
     library,
     progress,
+    reading_sources,
     study,
     users,
 )
@@ -73,4 +74,5 @@ app.include_router(decks.router, prefix=API_V1_PREFIX)
 app.include_router(study.router, prefix=API_V1_PREFIX)
 app.include_router(progress.router, prefix=API_V1_PREFIX)
 app.include_router(library.router, prefix=API_V1_PREFIX)
+app.include_router(reading_sources.router, prefix=API_V1_PREFIX)
 app.include_router(auto.router, prefix=API_V1_PREFIX)

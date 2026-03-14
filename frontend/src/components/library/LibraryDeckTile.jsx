@@ -51,7 +51,7 @@ export default function LibraryDeckTile({ deck, onClick }) {
         </h3>
 
         <div className="flex items-center justify-between gap-2 text-xs text-stone-500">
-          <span>{cardsCount} cards</span>
+          <span>{cardsCount} words</span>
           {deck?.rating != null ? <span>{Number(deck.rating).toFixed(1)} rating</span> : null}
         </div>
       </div>

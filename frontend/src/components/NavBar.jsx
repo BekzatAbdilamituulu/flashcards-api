@@ -33,7 +33,7 @@ export default function NavBar() {
     >
       <div style={{ display: "flex", gap: 12 }}>
         <Link to="/app">Dashboard</Link>
-        <Link to="/app/decks">Decks</Link>
+        <Link to="/app/sources">Sources</Link>
         <Link to="/app/profile">Profile</Link>
         <Link to="/app/progress">Progress</Link>
       </div>

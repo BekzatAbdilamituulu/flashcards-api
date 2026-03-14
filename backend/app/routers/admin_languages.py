@@ -14,8 +14,11 @@ def create_language(
     payload: schemas.LanguageCreate, db: Session = Depends(get_db), _admin=Depends(require_admin)
 ):
     try:
-        return crud.create_language(db, name=payload.name, code=payload.code)
+        lang = crud.create_language(db, name=payload.name, code=payload.code)
+        db.commit()
+        return lang
     except IntegrityError:
+        db.rollback()
         raise HTTPException(status_code=409, detail="Language with this code already exists")
 
 
@@ -28,21 +31,29 @@ def update_language(
 ):
     try:
         updated = crud.update_language(db, language_id, name=payload.name, code=payload.code)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Language not found")
+        db.commit()
+        return updated
     except IntegrityError:
+        db.rollback()
         raise HTTPException(status_code=409, detail="Language with this code already exists")
-
-    if not updated:
-        raise HTTPException(status_code=404, detail="Language not found")
-    return updated
+    except HTTPException:
+        db.rollback()
+        raise
 
 
 @router.delete("/{language_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_language(language_id: int, db: Session = Depends(get_db), _admin=Depends(require_admin)):
     try:
         ok = crud.delete_language(db, language_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Language not found")
+        db.commit()
+        return
     except ValueError as e:
+        db.rollback()
         raise HTTPException(status_code=409, detail=str(e))
-
-    if not ok:
-        raise HTTPException(status_code=404, detail="Language not found")
-    return
+    except HTTPException:
+        db.rollback()
+        raise

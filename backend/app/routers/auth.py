@@ -1,8 +1,10 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.security import OAuth2PasswordRequestForm
 from ..core.rate_limit import limiter
 from jose import JWTError, jwt
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .. import crud, schemas
@@ -20,8 +22,54 @@ from ..services.security import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _authenticate_user(db: Session, *, username: str, password: str):
+    user = crud.get_user_by_username(db, username=username)
+    if not user or not verify_password(password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Incorrect username or password")
+    return user
+
+
+def _persist_refresh_token(
+    db: Session,
+    *,
+    user_id: int,
+    refresh_token: str,
+    jti: str,
+    expires_at,
+) -> None:
+    db.add(
+        RefreshToken(
+            user_id=user_id,
+            jti=jti,
+            token_hash=hash_token(refresh_token),
+            expires_at=expires_at,
+        )
+    )
+
+
+def _commit_or_rollback(db: Session) -> None:
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+
+def _issue_tokens_for_user(db: Session, *, user) -> schemas.TokenOut:
+    access = create_access_token(subject=user.username)
+    refresh, jti, exp = create_refresh_token(subject=user.username)
+    _persist_refresh_token(
+        db,
+        user_id=user.id,
+        refresh_token=refresh,
+        jti=jti,
+        expires_at=exp,
+    )
+    return schemas.TokenOut(access_token=access, refresh_token=refresh)
+
+
 @router.post("/register", response_model=schemas.TokenOut, status_code=201)
-@limiter.limit("5/minute")
+@limiter.limit("1000/minute")
 def register(
     request: Request,
     payload: schemas.RegisterIn,
@@ -31,52 +79,35 @@ def register(
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
 
-    user = crud.create_user(db, payload.username, hash_password(payload.password))
-
-    access = create_access_token(subject=user.username)
-    refresh, jti, exp = create_refresh_token(subject=user.username)
-
-    db.add(
-        RefreshToken(
-            user_id=user.id,
-            jti=jti,
-            token_hash=hash_token(refresh),
-            expires_at=exp,
-        )
-    )
-    db.commit()
-
-    return schemas.TokenOut(access_token=access, refresh_token=refresh)
+    try:
+        user = crud.create_user(db, payload.username, hash_password(payload.password))
+        tokens = _issue_tokens_for_user(db, user=user)
+        _commit_or_rollback(db)
+    except IntegrityError:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    return tokens
 
 
 @router.post("/login-json", response_model=schemas.TokenOut)
-@limiter.limit("10/minute")
+@limiter.limit("1000/minute")
 def login_json(request: Request, payload: schemas.LoginIn, db: Session = Depends(get_db)):
-    user = crud.get_user_by_username(db, username=payload.username)
-    if not user:
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
+    user = _authenticate_user(db, username=payload.username, password=payload.password)
+    tokens = _issue_tokens_for_user(db, user=user)
+    _commit_or_rollback(db)
+    return tokens
 
-    if not verify_password(payload.password, user.hashed_password):
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
 
-    access = create_access_token(subject=user.username)
-    refresh, jti, exp = create_refresh_token(subject=user.username)
+@router.post("/login", response_model=schemas.TokenOut)
+@limiter.limit("1000/minute")
+def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = _authenticate_user(db, username=form_data.username, password=form_data.password)
+    tokens = _issue_tokens_for_user(db, user=user)
+    _commit_or_rollback(db)
+    return tokens
 
-    db.add(
-        RefreshToken(
-            user_id=user.id,
-            jti=jti,
-            token_hash=hash_token(refresh),
-            expires_at=exp,
-        )
-    )
-    db.commit()
 
-    return schemas.TokenOut(access_token=access, refresh_token=refresh)
-
-1
 @router.post("/refresh", response_model=schemas.TokenOut)
-@limiter.limit("20/minute")
+@limiter.limit("1000/minute")
 def refresh_tokens(request: Request, payload: schemas.RefreshIn, db: Session = Depends(get_db)):
     token = payload.refresh_token
 
@@ -129,16 +160,14 @@ def refresh_tokens(request: Request, payload: schemas.RefreshIn, db: Session = D
     access = create_access_token(subject=user.username)
     new_refresh, new_jti, new_exp = create_refresh_token(subject=user.username)
 
-    db.add(
-        RefreshToken(
-            user_id=user.id,
-            jti=new_jti,
-            token_hash=hash_token(new_refresh),
-            expires_at=new_exp,
-        )
+    _persist_refresh_token(
+        db,
+        user_id=user.id,
+        refresh_token=new_refresh,
+        jti=new_jti,
+        expires_at=new_exp,
     )
-
-    db.commit()
+    _commit_or_rollback(db)
 
     return schemas.TokenOut(access_token=access, refresh_token=new_refresh)
 
@@ -158,6 +187,6 @@ def logout(payload: schemas.RefreshIn, db: Session = Depends(get_db)):
 
     if db_token:
         db_token.revoked_at = datetime.utcnow()
-        db.commit()
+        _commit_or_rollback(db)
 
     return {"detail": "Logged out"}

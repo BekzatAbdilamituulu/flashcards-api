@@ -68,7 +68,7 @@ export default function OnboardingPage() {
       const targetLabel = (target?.code || target?.name || "target").toLowerCase();
 
       await DecksApi.create({
-        name: `My deck (${sourceLabel}→${targetLabel})`,
+        name: `My source (${sourceLabel}→${targetLabel})`,
         source_language_id: learningId,
         target_language_id: translationId,
         deck_type: "users",
@@ -92,18 +92,39 @@ export default function OnboardingPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-bold">Choose your first language pair</h1>
+        <h1 className="text-2xl font-bold">Learn languages through reading</h1>
         <p className="mt-1 text-sm text-gray-600">
-          Cards will show learning language on the front and translation on the back.
+          Save new words while reading books and remember them long-term.
         </p>
       </div>
+
+      <Card className="space-y-3">
+        <div>
+          <h2 className="text-base font-semibold">Keep words in context</h2>
+          <p className="text-sm text-gray-600">
+            Add the sentence where you found the word. Context helps memory.
+          </p>
+        </div>
+        <div>
+          <h2 className="text-base font-semibold">Review calmly</h2>
+          <p className="text-sm text-gray-600">
+            A simple reading review system helps you remember without pressure.
+          </p>
+        </div>
+        <div>
+          <h2 className="text-base font-semibold">Build your personal vocabulary library</h2>
+          <p className="text-sm text-gray-600">
+            Organize words by books, articles, and sources.
+          </p>
+        </div>
+      </Card>
 
       <Card>
         <PairForm
           languages={languages}
           initialLearningId={initialLearningId}
           initialTranslationId={initialTranslationId}
-          submitLabel="Continue"
+          submitLabel="Start reading smarter"
           saving={saving}
           error={error}
           onSubmit={handleSubmit}

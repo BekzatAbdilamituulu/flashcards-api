@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from .. import crud, schemas, models
+from .. import schemas
 from ..database import get_db
 from ..deps import get_current_user, require_admin
 from app.services import library_service
@@ -23,9 +23,9 @@ def list_library_decks(
     offset = max(0, offset)
 
     try:
-        items, total = crud.list_library_decks(
+        items, total = library_service.list_library_decks_for_user(
             db,
-            current_user.id,
+            user_id=current_user.id,
             limit=limit,
             offset=offset,
             pair_id=pair_id,
@@ -48,10 +48,23 @@ def library_deck_cards(
     deck_id: int,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    reading_source_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    items, total = crud.list_library_deck_cards(db, deck_id, limit=limit, offset=offset)
+    try:
+        items, total = library_service.list_library_cards_for_deck(
+            db,
+            user_id=current_user.id,
+            deck_id=deck_id,
+            limit=limit,
+            offset=offset,
+            reading_source_id=reading_source_id,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     return {
         "items": items,
@@ -76,6 +89,7 @@ def import_library_card(
             db,
             user_id=current_user.id,
             library_card_id=card_id,
+            dry_run=payload.dry_run,
         )
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -100,6 +114,7 @@ def import_selected_cards(
             user_id=current_user.id,
             library_deck_id=deck_id,
             card_ids=payload.card_ids,
+            dry_run=payload.dry_run,
         )
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -119,15 +134,12 @@ def admin_create_library_deck(
     For MVP, admins can add cards using existing /decks/{deck_id}/cards endpoints
     because admin is the deck owner.
     """
-    deck = crud.create_deck(
+    return library_service.create_library_deck_for_admin(
         db,
-        name=payload.name,
         owner_id=current_user.id,
+        name=payload.name,
         source_language_id=payload.source_language_id,
         target_language_id=payload.target_language_id,
-        deck_type=models.DeckType.LIBRARY,
+        source_type=payload.source_type,
+        author_name=payload.author_name,
     )
-    deck.is_public = True
-    db.commit()
-    db.refresh(deck)
-    return deck

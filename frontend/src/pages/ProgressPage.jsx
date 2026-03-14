@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { ProgressApi } from "../api/endpoints";
 import { useActivePair } from "../context/ActivePairContext";
+import { memoryStrengthFromStatus } from "../utils/memoryStrength";
 
 function extractError(e) {
   if (e?.response?.data) return JSON.stringify(e.response.data);
@@ -92,7 +93,7 @@ export default function ProgressPage() {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-        <h1 style={{ marginTop: 0 }}>Progress</h1>
+        <h1 style={{ marginTop: 0 }}>Reading growth</h1>
         <button onClick={load} disabled={loading}>
           {loading ? "Loading..." : "Refresh"}
         </button>
@@ -107,35 +108,61 @@ export default function ProgressPage() {
       ) : null}
 
       {!loading && summary ? (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-            gap: 10,
-            marginBottom: 16,
-          }}
-        >
-          <div style={{ background: "#f5f5f5", padding: 12 }}>
-            <div style={{ opacity: 0.7, fontSize: 12 }}>Today done</div>
-            <strong>{summary.today_cards_done}</strong>
+        <>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+              gap: 10,
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ background: "#f5f5f5", padding: 12 }}>
+              <div style={{ opacity: 0.7, fontSize: 12 }}>Words reviewed today</div>
+              <strong>{summary.today_cards_done}</strong>
+            </div>
+            <div style={{ background: "#f5f5f5", padding: 12 }}>
+              <div style={{ opacity: 0.7, fontSize: 12 }}>Review answers</div>
+              <strong>{summary.today_reviews_done}</strong>
+            </div>
+            <div style={{ background: "#f5f5f5", padding: 12 }}>
+              <div style={{ opacity: 0.7, fontSize: 12 }}>New words introduced</div>
+              <strong>{summary.today_new_done}</strong>
+            </div>
+            <div style={{ background: "#f5f5f5", padding: 12 }}>
+              <div style={{ opacity: 0.7, fontSize: 12 }}>Streak</div>
+              <strong>{summary.current_streak}</strong>
+            </div>
+            <div style={{ background: "#f5f5f5", padding: 12 }}>
+              <div style={{ opacity: 0.7, fontSize: 12 }}>Words saved today</div>
+              <strong>{summary.today_added_cards}</strong>
+            </div>
           </div>
-          <div style={{ background: "#f5f5f5", padding: 12 }}>
-            <div style={{ opacity: 0.7, fontSize: 12 }}>Reviews</div>
-            <strong>{summary.today_reviews_done}</strong>
+
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 8, fontSize: 13, opacity: 0.8 }}>Memory Strength</div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                gap: 10,
+              }}
+            >
+              <div style={{ background: "#f5f5f5", padding: 12 }}>
+                <div style={{ opacity: 0.7, fontSize: 12 }}>{memoryStrengthFromStatus("new")}</div>
+                <strong>{summary.total_new ?? 0}</strong>
+              </div>
+              <div style={{ background: "#f5f5f5", padding: 12 }}>
+                <div style={{ opacity: 0.7, fontSize: 12 }}>{memoryStrengthFromStatus("learning")}</div>
+                <strong>{summary.total_learning ?? 0}</strong>
+              </div>
+              <div style={{ background: "#f5f5f5", padding: 12 }}>
+                <div style={{ opacity: 0.7, fontSize: 12 }}>{memoryStrengthFromStatus("mastered")}</div>
+                <strong>{summary.total_mastered ?? 0}</strong>
+              </div>
+            </div>
           </div>
-          <div style={{ background: "#f5f5f5", padding: 12 }}>
-            <div style={{ opacity: 0.7, fontSize: 12 }}>New done</div>
-            <strong>{summary.today_new_done}</strong>
-          </div>
-          <div style={{ background: "#f5f5f5", padding: 12 }}>
-            <div style={{ opacity: 0.7, fontSize: 12 }}>Streak</div>
-            <strong>{summary.current_streak}</strong>
-          </div>
-          <div style={{ background: "#f5f5f5", padding: 12 }}>
-            <div style={{ opacity: 0.7, fontSize: 12 }}>Added today</div>
-            <strong>{summary.today_added_cards}</strong>
-          </div>
-        </div>
+        </>
       ) : null}
 
       {!loading && !error ? (

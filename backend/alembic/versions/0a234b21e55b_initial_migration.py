@@ -1,8 +1,8 @@
 """Initial migration
 
-Revision ID: 6cbd409b9230
+Revision ID: 0a234b21e55b
 Revises: 
-Create Date: 2026-03-08 21:02:14.639952
+Create Date: 2026-03-10 23:40:06.076226
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '6cbd409b9230'
+revision: str = '0a234b21e55b'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -48,6 +48,8 @@ def upgrade() -> None:
     sa.Column('status', sa.Enum('DRAFT', 'PUBLISHED', 'HIDDEN', name='deckstatus'), nullable=False),
     sa.Column('shared_code', sa.String(), nullable=True),
     sa.Column('deck_type', sa.Enum('MAIN', 'USERS', 'LIBRARY', name='decktype'), nullable=False),
+    sa.Column('source_type', sa.String(), nullable=True),
+    sa.Column('author_name', sa.String(), nullable=True),
     sa.Column('source_language_id', sa.Integer(), nullable=False),
     sa.Column('target_language_id', sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(['owner_id'], ['users.id'], ),
@@ -130,25 +132,6 @@ def upgrade() -> None:
     op.create_index(op.f('ix_user_learning_pairs_id'), 'user_learning_pairs', ['id'], unique=False)
     op.create_index('ix_user_learning_pairs_user_default', 'user_learning_pairs', ['user_id', 'is_default'], unique=False)
     op.create_index(op.f('ix_user_learning_pairs_user_id'), 'user_learning_pairs', ['user_id'], unique=False)
-    op.create_table('cards',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('front', sa.String(), nullable=False),
-    sa.Column('front_norm', sa.String(), nullable=False),
-    sa.Column('back', sa.String(), nullable=True),
-    sa.Column('example_sentence', sa.String(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
-    sa.Column('deck_id', sa.Integer(), nullable=False),
-    sa.Column('library_source_card_id', sa.Integer(), nullable=True),
-    sa.ForeignKeyConstraint(['deck_id'], ['decks.id'], ),
-    sa.ForeignKeyConstraint(['library_source_card_id'], ['cards.id'], ),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('deck_id', 'front_norm', name='uq_cards_deck_front_norm')
-    )
-    op.create_index(op.f('ix_cards_created_at'), 'cards', ['created_at'], unique=False)
-    op.create_index(op.f('ix_cards_deck_id'), 'cards', ['deck_id'], unique=False)
-    op.create_index(op.f('ix_cards_front_norm'), 'cards', ['front_norm'], unique=False)
-    op.create_index(op.f('ix_cards_id'), 'cards', ['id'], unique=False)
-    op.create_index(op.f('ix_cards_library_source_card_id'), 'cards', ['library_source_card_id'], unique=False)
     op.create_table('daily_progress',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=False),
@@ -178,6 +161,57 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_deck_access_deck_id'), 'deck_access', ['deck_id'], unique=False)
     op.create_index(op.f('ix_deck_access_user_id'), 'deck_access', ['user_id'], unique=False)
+    op.create_table('reading_sources',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('pair_id', sa.Integer(), nullable=False),
+    sa.Column('title', sa.String(), nullable=False),
+    sa.Column('title_norm', sa.String(), nullable=False),
+    sa.Column('author', sa.String(), nullable=True),
+    sa.Column('author_norm', sa.String(), nullable=False),
+    sa.Column('kind', sa.String(), nullable=True),
+    sa.Column('reference', sa.Text(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.ForeignKeyConstraint(['pair_id'], ['user_learning_pairs.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('user_id', 'pair_id', 'title_norm', 'author_norm', name='uq_reading_sources_user_pair_title_author')
+    )
+    op.create_index(op.f('ix_reading_sources_author_norm'), 'reading_sources', ['author_norm'], unique=False)
+    op.create_index(op.f('ix_reading_sources_id'), 'reading_sources', ['id'], unique=False)
+    op.create_index(op.f('ix_reading_sources_pair_id'), 'reading_sources', ['pair_id'], unique=False)
+    op.create_index(op.f('ix_reading_sources_title_norm'), 'reading_sources', ['title_norm'], unique=False)
+    op.create_index(op.f('ix_reading_sources_user_id'), 'reading_sources', ['user_id'], unique=False)
+    op.create_table('cards',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('front', sa.String(), nullable=False),
+    sa.Column('front_norm', sa.String(), nullable=False),
+    sa.Column('back', sa.String(), nullable=True),
+    sa.Column('example_sentence', sa.String(), nullable=True),
+    sa.Column('content_kind', sa.String(), nullable=False),
+    sa.Column('source_title', sa.String(), nullable=True),
+    sa.Column('source_author', sa.String(), nullable=True),
+    sa.Column('source_reference', sa.Text(), nullable=True),
+    sa.Column('source_sentence', sa.Text(), nullable=True),
+    sa.Column('source_page', sa.String(), nullable=True),
+    sa.Column('context_note', sa.Text(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('deck_id', sa.Integer(), nullable=False),
+    sa.Column('reading_source_id', sa.Integer(), nullable=True),
+    sa.Column('library_source_card_id', sa.Integer(), nullable=True),
+    sa.ForeignKeyConstraint(['deck_id'], ['decks.id'], ),
+    sa.ForeignKeyConstraint(['library_source_card_id'], ['cards.id'], ),
+    sa.ForeignKeyConstraint(['reading_source_id'], ['reading_sources.id'], ),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('deck_id', 'front_norm', name='uq_cards_deck_front_norm')
+    )
+    op.create_index(op.f('ix_cards_created_at'), 'cards', ['created_at'], unique=False)
+    op.create_index(op.f('ix_cards_deck_id'), 'cards', ['deck_id'], unique=False)
+    op.create_index(op.f('ix_cards_front_norm'), 'cards', ['front_norm'], unique=False)
+    op.create_index(op.f('ix_cards_id'), 'cards', ['id'], unique=False)
+    op.create_index(op.f('ix_cards_library_source_card_id'), 'cards', ['library_source_card_id'], unique=False)
+    op.create_index(op.f('ix_cards_reading_source_id'), 'cards', ['reading_source_id'], unique=False)
     op.create_table('user_card_progress',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=False),
@@ -185,7 +219,7 @@ def upgrade() -> None:
     sa.Column('times_seen', sa.Integer(), nullable=True),
     sa.Column('times_correct', sa.Integer(), nullable=True),
     sa.Column('last_review', sa.DateTime(), nullable=True),
-    sa.Column('status', sa.Enum('NEW', 'LEARNING', 'MASTERED', name='progressstatus'), nullable=False),
+    sa.Column('status', sa.Enum('new', 'learning', 'mastered', name='progressstatus', native_enum=False), nullable=False),
     sa.Column('stage', sa.Integer(), nullable=True),
     sa.Column('due_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['card_id'], ['cards.id'], ),
@@ -210,6 +244,19 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_user_card_progress_due_at'), table_name='user_card_progress')
     op.drop_index(op.f('ix_user_card_progress_card_id'), table_name='user_card_progress')
     op.drop_table('user_card_progress')
+    op.drop_index(op.f('ix_cards_reading_source_id'), table_name='cards')
+    op.drop_index(op.f('ix_cards_library_source_card_id'), table_name='cards')
+    op.drop_index(op.f('ix_cards_id'), table_name='cards')
+    op.drop_index(op.f('ix_cards_front_norm'), table_name='cards')
+    op.drop_index(op.f('ix_cards_deck_id'), table_name='cards')
+    op.drop_index(op.f('ix_cards_created_at'), table_name='cards')
+    op.drop_table('cards')
+    op.drop_index(op.f('ix_reading_sources_user_id'), table_name='reading_sources')
+    op.drop_index(op.f('ix_reading_sources_title_norm'), table_name='reading_sources')
+    op.drop_index(op.f('ix_reading_sources_pair_id'), table_name='reading_sources')
+    op.drop_index(op.f('ix_reading_sources_id'), table_name='reading_sources')
+    op.drop_index(op.f('ix_reading_sources_author_norm'), table_name='reading_sources')
+    op.drop_table('reading_sources')
     op.drop_index(op.f('ix_deck_access_user_id'), table_name='deck_access')
     op.drop_index(op.f('ix_deck_access_deck_id'), table_name='deck_access')
     op.drop_table('deck_access')
@@ -218,12 +265,6 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_daily_progress_learning_pair_id'), table_name='daily_progress')
     op.drop_index(op.f('ix_daily_progress_date'), table_name='daily_progress')
     op.drop_table('daily_progress')
-    op.drop_index(op.f('ix_cards_library_source_card_id'), table_name='cards')
-    op.drop_index(op.f('ix_cards_id'), table_name='cards')
-    op.drop_index(op.f('ix_cards_front_norm'), table_name='cards')
-    op.drop_index(op.f('ix_cards_deck_id'), table_name='cards')
-    op.drop_index(op.f('ix_cards_created_at'), table_name='cards')
-    op.drop_table('cards')
     op.drop_index(op.f('ix_user_learning_pairs_user_id'), table_name='user_learning_pairs')
     op.drop_index('ix_user_learning_pairs_user_default', table_name='user_learning_pairs')
     op.drop_index(op.f('ix_user_learning_pairs_id'), table_name='user_learning_pairs')

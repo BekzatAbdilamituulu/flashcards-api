@@ -6,6 +6,9 @@ from tests.conftest import (
     create_user_and_token,
     get_main_deck_id,
 )
+from app import models
+from app.services.srs import LEARNING_SUCCESS_INTERVALS, compute_next_review_state
+from datetime import datetime
 
 
 def test_stage1_wrong_stays_stage1(client, token_headers, make_deck_with_cards):
@@ -212,3 +215,93 @@ def test_learning_wrong_drops_one_stage(client, token_headers, make_deck_with_ca
     p = r.json()
     assert p["status"] == "learning"
     assert p["stage"] == 3
+
+
+def test_stage_intervals_are_explicit_and_deterministic():
+    now = datetime.utcnow()
+    res = compute_next_review_state(
+        status=models.ProgressStatus.LEARNING,
+        stage=1,
+        learned=True,
+        now=now,
+    )
+    assert res.status == models.ProgressStatus.LEARNING
+    assert res.stage == 2
+    assert res.due_at == now + LEARNING_SUCCESS_INTERVALS[1]
+
+    res2 = compute_next_review_state(
+        status=models.ProgressStatus.LEARNING,
+        stage=4,
+        learned=True,
+        now=now,
+    )
+    assert res2.stage == 5
+    assert res2.due_at == now + LEARNING_SUCCESS_INTERVALS[4]
+
+
+def test_next_batch_prioritizes_due_reviews_over_new(client, monkeypatch):
+    monkeypatch.setattr("app.services.srs.FIRST_REVIEW_DELAY_SECONDS", 0)
+
+    _, admin_token = create_user_and_token(client, "admin")
+    _, token = create_user_and_token(client, "prio_user")
+
+    en_id = admin_create_language(client, admin_token, "English", "en")
+    ru_id = admin_create_language(client, admin_token, "Russian", "ru")
+    create_deck(client, token, "D", en_id, ru_id)
+    deck_id = get_main_deck_id(client, token, en_id, ru_id)
+
+    due_card = add_card(client, token, deck_id, "dueword", "перевод")
+    new_card = add_card(client, token, deck_id, "newword", "новое")
+
+    # Introduce first card: with delay=0 it becomes immediately due review.
+    r = client.post(
+        f"/api/v1/study/{due_card['id']}", json={"learned": True}, headers=auth_headers(token)
+    )
+    assert r.status_code == 200, r.text
+
+    batch = client.get(
+        f"/api/v1/study/decks/{deck_id}/next",
+        params={"limit": 2, "new_ratio": 1.0},
+        headers=auth_headers(token),
+    )
+    assert batch.status_code == 200, batch.text
+    cards = batch.json()["cards"]
+    ids = [c["id"] for c in cards]
+    assert due_card["id"] in ids
+    assert len(ids) == len(set(ids))
+    # Reviews should come first in the queue ordering.
+    assert ids[0] == due_card["id"]
+    assert new_card["id"] in ids
+
+
+def test_study_answer_updates_fields_consistently(client, token_headers, make_deck_with_cards):
+    _, cards = make_deck_with_cards(n=1)
+    card_id = cards[0]["id"]
+
+    r1 = _post_learned(client, token_headers, card_id, True)
+    assert r1.status_code == 200
+    p1 = r1.json()
+    assert p1["times_seen"] == 1
+    assert p1["times_correct"] == 1
+    assert p1["status"] == "learning"
+    assert p1["stage"] == 1
+    assert p1["due_at"] is not None
+    assert p1["last_review"] is not None
+
+    last_review_1 = datetime.fromisoformat(p1["last_review"])
+    due_1 = datetime.fromisoformat(p1["due_at"])
+    assert due_1 >= last_review_1
+
+    r2 = _post_learned(client, token_headers, card_id, False)
+    assert r2.status_code == 200
+    p2 = r2.json()
+    assert p2["times_seen"] == 2
+    assert p2["times_correct"] == 1
+    assert p2["status"] == "learning"
+    assert p2["stage"] == 1
+    assert p2["due_at"] is not None
+    assert p2["last_review"] is not None
+    last_review_2 = datetime.fromisoformat(p2["last_review"])
+    due_2 = datetime.fromisoformat(p2["due_at"])
+    assert last_review_2 >= last_review_1
+    assert due_2 >= last_review_2

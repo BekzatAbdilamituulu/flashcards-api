@@ -48,7 +48,7 @@ function extractImportCounts(data, fallbackImported = 0, fallbackSkipped = 0) {
 
 function buildImportToast(imported, skipped) {
   if (skipped > 0) {
-    return `Added ${imported} ${imported === 1 ? "card" : "cards"} • ${skipped} already existed`;
+    return `Added ${imported} ${imported === 1 ? "word" : "words"} • ${skipped} already existed`;
   }
   return "Added to your Main Deck";
 }
@@ -93,7 +93,7 @@ export default function LibraryDeckDetailPage() {
 
     try {
       if (!(id > 0)) {
-        setError("Invalid library deck id.");
+        setError("Invalid reading pack id.");
         setDeck(null);
         return;
       }
@@ -107,7 +107,7 @@ export default function LibraryDeckDetailPage() {
       if (found) {
         setDeck(found);
       } else if (!location.state?.deck) {
-        setDeck({ id, name: `Library deck #${id}` });
+        setDeck({ id, name: `Reading pack #${id}` });
       }
     } catch (e) {
       setError(extractError(e));
@@ -227,10 +227,10 @@ export default function LibraryDeckDetailPage() {
 
         <div className="space-y-2 p-4">
           <h1 className="text-2xl font-bold text-stone-900">
-            {loadingDeck ? "Loading set..." : deck?.name || `Library deck #${id}`}
+            {loadingDeck ? "Loading reading pack..." : deck?.name || `Reading pack #${id}`}
           </h1>
           <div className="flex flex-wrap items-center gap-3 text-sm text-stone-600">
-            <span>{deck?.cards_count ?? "-"} cards</span>
+            <span>{deck?.cards_count ?? "-"} words</span>
             {deck?.rating != null ? <span>{Number(deck.rating).toFixed(1)} rating</span> : null}
           </div>
         </div>
@@ -264,18 +264,18 @@ export default function LibraryDeckDetailPage() {
             {importingSelected ? "Importing..." : `Import selected (${selectedIds.length})`}
           </Button>
         </div>
-        <p className="text-xs text-stone-500">Select one or many cards, then import to your Main Deck.</p>
+        <p className="text-xs text-stone-500">Select one or many entries, then import to your Main Deck.</p>
       </Card>
 
       {cardsError ? (
         <pre className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">{cardsError}</pre>
       ) : null}
 
-      {loadingCards ? <p className="text-sm text-stone-500">Loading cards...</p> : null}
+      {loadingCards ? <p className="text-sm text-stone-500">Loading entries...</p> : null}
 
       {!loadingCards && cards.length === 0 ? (
         <Card className="border-stone-200 bg-white/95">
-          <p className="text-sm text-stone-600">No cards in this set yet.</p>
+          <p className="text-sm text-stone-600">No entries in this reading pack yet.</p>
         </Card>
       ) : null}
 
@@ -312,18 +312,18 @@ export default function LibraryDeckDetailPage() {
                 </div>
 
                 <div>
-                  <p className="text-xs text-stone-500">Front</p>
+                  <p className="text-xs text-stone-500">Word / entry</p>
                   <p className="text-stone-900">{card.front || "-"}</p>
                 </div>
 
                 <div>
-                  <p className="text-xs text-stone-500">Back</p>
+                  <p className="text-xs text-stone-500">Translation / meaning</p>
                   <p className="text-stone-900">{card.back || "-"}</p>
                 </div>
 
                 {card.example_sentence ? (
                   <div>
-                    <p className="text-xs text-stone-500">Example</p>
+                    <p className="text-xs text-stone-500">Source sentence</p>
                     <p className="text-stone-700">{card.example_sentence}</p>
                   </div>
                 ) : null}

@@ -1,5 +1,28 @@
 import { api } from "./client";
 
+export const API_PAGE_LIMIT = 200;
+
+/**
+ * @typedef {Object} DeckPayload
+ * @property {string} [name]
+ * @property {number} [pair_id]
+ * @property {number} [source_language_id]
+ * @property {number} [target_language_id]
+ * @property {string} [source_type]
+ * @property {string} [author_name]
+ */
+
+/**
+ * @typedef {Object} CardPayload
+ * @property {string} [front]
+ * @property {string} [back]
+ * @property {string|null} [example_sentence]
+ * @property {string|null} [content_kind]
+ * @property {string|null} [source_sentence]
+ * @property {string|null} [source_page]
+ * @property {string|null} [context_note]
+ */
+
 export const AuthApi = {
   register: (username, password) =>
     api.post("/api/v1/auth/register", { username, password }),
@@ -34,16 +57,20 @@ export const LanguagesApi = {
 export const DecksApi = {
   list: (limit = 50, offset = 0, params = {}) =>
     api.get("/api/v1/decks", { params: { limit, offset, ...params } }),
+  /** @param {DeckPayload} payload */
   create: (payload) => api.post("/api/v1/decks", payload),
   get: (deckId) => api.get(`/api/v1/decks/${deckId}`),
+  /** @param {DeckPayload} payload */
   update: (deckId, payload) => api.patch(`/api/v1/decks/${deckId}`, payload),
   delete: (deckId) => api.delete(`/api/v1/decks/${deckId}`),
 };
 
 export const CardsApi = {
-  list: (deckId, limit = 50, offset = 0) =>
-    api.get(`/api/v1/decks/${deckId}/cards`, { params: { limit, offset } }),
+  list: (deckId, limit = 50, offset = 0, params = {}) =>
+    api.get(`/api/v1/decks/${deckId}/cards`, { params: { limit, offset, ...params } }),
+  /** @param {CardPayload} payload */
   create: (deckId, payload) => api.post(`/api/v1/decks/${deckId}/cards`, payload),
+  /** @param {CardPayload} payload */
   update: (deckId, cardId, payload) =>
     api.patch(`/api/v1/decks/${deckId}/cards/${cardId}`, payload),
   delete: (deckId, cardId) => api.delete(`/api/v1/decks/${deckId}/cards/${cardId}`),
@@ -77,15 +104,26 @@ export const AutoApi = {
 };
 
 export const StudyApi = {
-  next: (deckId) => api.get(`/api/v1/study/decks/${deckId}/next`),
+  next: (deckId, params = {}) => api.get(`/api/v1/study/decks/${deckId}/next`, { params }),
+  status: (deckId, params = {}) => api.get(`/api/v1/study/decks/${deckId}/status`, { params }),
   answer: (cardId, learned) => api.post(`/api/v1/study/${cardId}`, { learned }),
 };
 
 export const LibraryApi = {
   listDecks: (filters = {}) => api.get("/api/v1/library/decks", { params: filters }),
-  listDeckCards: (deckId, limit = 50, offset = 0) =>
-    api.get(`/api/v1/library/decks/${deckId}/cards`, { params: { limit, offset } }),
+  listDeckCards: (deckId, limit = 50, offset = 0, params = {}) =>
+    api.get(`/api/v1/library/decks/${deckId}/cards`, { params: { limit, offset, ...params } }),
   importCard: (cardId) => api.post(`/api/v1/library/cards/${cardId}/import`, {}),
   importSelected: (deckId, card_ids) =>
     api.post(`/api/v1/library/decks/${deckId}/import-selected`, { card_ids }),
+};
+
+export const ReadingSourcesApi = {
+  list: (params = {}) => api.get("/api/v1/reading-sources", { params }),
+  create: (payload) => api.post("/api/v1/reading-sources", payload),
+  get: (sourceId) => api.get(`/api/v1/reading-sources/${sourceId}`),
+  getDetail: (sourceId, limit = 50, offset = 0) =>
+    api.get(`/api/v1/reading-sources/${sourceId}/detail`, { params: { limit, offset } }),
+  listCards: (sourceId, limit = 50, offset = 0) =>
+    api.get(`/api/v1/reading-sources/${sourceId}/cards`, { params: { limit, offset } }),
 };

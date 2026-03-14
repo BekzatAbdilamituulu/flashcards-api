@@ -120,9 +120,9 @@ export default function ProfilePage() {
         <div style={{ marginBottom: 20 }}>
           <h3>Summary</h3>
           <div>Total cards: {summary.total_cards}</div>
-          <div>Mastered: {summary.total_mastered}</div>
-          <div>Learning: {summary.total_learning}</div>
-          <div>New: {summary.total_new}</div>
+          <div>Strong memory: {summary.total_mastered}</div>
+          <div>Medium memory: {summary.total_learning}</div>
+          <div>Weak memory: {summary.total_new}</div>
         </div>
       )}
 
