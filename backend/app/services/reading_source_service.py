@@ -28,6 +28,56 @@ def get_reading_source(db: Session, *, user_id: int, source_id: int) -> models.R
     return source
 
 
+def update_reading_source(
+    db: Session,
+    *,
+    user_id: int,
+    source_id: int,
+    title: str | None = None,
+    author: str | None = None,
+    kind: str | None = None,
+    reference: str | None = None,
+) -> models.ReadingSource:
+    source = get_reading_source(db, user_id=user_id, source_id=source_id)
+
+    if title is not None:
+        title_clean = title.strip()
+        if not title_clean:
+            raise ValueError("Source title is required")
+        source.title = title_clean
+        source.title_norm = _normalize_text(title_clean)
+
+    if author is not None:
+        author_clean = author.strip() or None
+        source.author = author_clean
+        source.author_norm = _normalize_text(author_clean)
+
+    if kind is not None:
+        source.kind = kind.strip() or None
+
+    if reference is not None:
+        source.reference = reference.strip() or None
+
+    db.flush()
+    db.refresh(source)
+    return source
+
+
+def delete_reading_source(db: Session, *, user_id: int, source_id: int) -> None:
+    source = get_reading_source(db, user_id=user_id, source_id=source_id)
+
+    has_cards = (
+        db.query(models.Card.id)
+        .filter(models.Card.reading_source_id == source.id)
+        .first()
+        is not None
+    )
+    if has_cards:
+        raise ValueError("Cannot delete reading source while cards still reference it")
+
+    db.delete(source)
+
+
 def list_reading_sources_for_pair(
     db: Session,
     *,

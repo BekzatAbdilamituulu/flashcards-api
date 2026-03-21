@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app import models, schemas
@@ -9,9 +10,11 @@ from app.deps import get_current_user
 from app.services import pair_service
 from app.services.srs import _normalize_status
 from app.services.reading_source_service import (
+    delete_reading_source,
     get_reading_source,
     list_reading_sources_for_pair,
     resolve_or_create_reading_source,
+    update_reading_source,
 )
 
 router = APIRouter(prefix="/reading-sources", tags=["reading-sources"])
@@ -111,6 +114,63 @@ def get_source(
         return get_reading_source(db, user_id=user.id, source_id=source_id)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.patch("/{source_id}", response_model=schemas.ReadingSourceOut)
+def patch_source(
+    source_id: int,
+    payload: schemas.ReadingSourceUpdate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    try:
+        source = update_reading_source(
+            db,
+            user_id=user.id,
+            source_id=source_id,
+            title=payload.title,
+            author=payload.author,
+            kind=payload.kind,
+            reference=payload.reference,
+        )
+        db.commit()
+        return source
+    except LookupError as e:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Reading source with this title and author already exists for this pair",
+        )
+    except Exception:
+        db.rollback()
+        raise
+
+
+@router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_source(
+    source_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    try:
+        delete_reading_source(db, user_id=user.id, source_id=source_id)
+        db.commit()
+        return
+    except LookupError as e:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.get("/{source_id}/detail", response_model=schemas.SourceDetailOut)

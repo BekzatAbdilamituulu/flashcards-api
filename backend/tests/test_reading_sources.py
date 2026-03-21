@@ -339,6 +339,121 @@ def test_reading_source_stats_count_only_main_deck_cards(client):
 
 
 
+def test_update_reading_source_is_owner_scoped(client):
+    _, admin_token = create_user_and_token(client, "admin")
+    _, owner_token = create_user_and_token(client, "reader_update_owner")
+    _, other_token = create_user_and_token(client, "reader_update_other")
+
+    en_id = admin_create_language(client, admin_token, "English", "en")
+    ru_id = admin_create_language(client, admin_token, "Russian", "ru")
+    set_default_languages(client, owner_token, en_id, ru_id)
+    set_default_languages(client, other_token, en_id, ru_id)
+
+    owner_pair = client.get(
+        "/api/v1/users/me/default-learning-pair",
+        headers=auth_headers(owner_token),
+    ).json()["id"]
+
+    source_resp = client.post(
+        "/api/v1/reading-sources",
+        json={"pair_id": owner_pair, "title": "The Trial", "author": "Kafka"},
+        headers=auth_headers(owner_token),
+    )
+    assert source_resp.status_code == 201, source_resp.text
+    source_id = source_resp.json()["id"]
+
+    updated = client.patch(
+        f"/api/v1/reading-sources/{source_id}",
+        json={
+            "title": "The Castle",
+            "author": "Franz Kafka",
+            "kind": "book",
+            "reference": "Chapter 2",
+        },
+        headers=auth_headers(owner_token),
+    )
+    assert updated.status_code == 200, updated.text
+    body = updated.json()
+    assert body["title"] == "The Castle"
+    assert body["author"] == "Franz Kafka"
+    assert body["kind"] == "book"
+    assert body["reference"] == "Chapter 2"
+
+    forbidden = client.patch(
+        f"/api/v1/reading-sources/{source_id}",
+        json={"title": "Nope"},
+        headers=auth_headers(other_token),
+    )
+    assert forbidden.status_code == 404, forbidden.text
+
+
+def test_delete_reading_source_blocks_when_cards_reference_it(client):
+    _, admin_token = create_user_and_token(client, "admin")
+    _, token = create_user_and_token(client, "reader_delete_blocked")
+
+    en_id = admin_create_language(client, admin_token, "English", "en")
+    ru_id = admin_create_language(client, admin_token, "Russian", "ru")
+    set_default_languages(client, token, en_id, ru_id)
+    deck_id = get_main_deck_id(client, token, en_id, ru_id)
+    pair_id = client.get(
+        "/api/v1/users/me/default-learning-pair",
+        headers=auth_headers(token),
+    ).json()["id"]
+
+    source = client.post(
+        "/api/v1/reading-sources",
+        json={"pair_id": pair_id, "title": "Book In Use"},
+        headers=auth_headers(token),
+    ).json()
+
+    card_resp = client.post(
+        f"/api/v1/decks/{deck_id}/cards",
+        json={"front": "abate", "back": "ослабевать", "reading_source_id": source["id"]},
+        headers=auth_headers(token),
+    )
+    assert card_resp.status_code == 201, card_resp.text
+
+    deleted = client.delete(
+        f"/api/v1/reading-sources/{source['id']}",
+        headers=auth_headers(token),
+    )
+    assert deleted.status_code == 409, deleted.text
+    assert "reference" in deleted.json()["detail"].lower()
+
+
+def test_delete_reading_source_succeeds_when_unused(client):
+    _, admin_token = create_user_and_token(client, "admin")
+    _, token = create_user_and_token(client, "reader_delete_unused")
+
+    en_id = admin_create_language(client, admin_token, "English", "en")
+    ru_id = admin_create_language(client, admin_token, "Russian", "ru")
+    set_default_languages(client, token, en_id, ru_id)
+    pair_id = client.get(
+        "/api/v1/users/me/default-learning-pair",
+        headers=auth_headers(token),
+    ).json()["id"]
+
+    source_resp = client.post(
+        "/api/v1/reading-sources",
+        json={"pair_id": pair_id, "title": "Disposable Source"},
+        headers=auth_headers(token),
+    )
+    assert source_resp.status_code == 201, source_resp.text
+    source_id = source_resp.json()["id"]
+
+    deleted = client.delete(
+        f"/api/v1/reading-sources/{source_id}",
+        headers=auth_headers(token),
+    )
+    assert deleted.status_code == 204, deleted.text
+
+    missing = client.get(
+        f"/api/v1/reading-sources/{source_id}",
+        headers=auth_headers(token),
+    )
+    assert missing.status_code == 404, missing.text
+
+
 def test_reading_source_stats_are_pair_scoped(client):
     _, admin_token = create_user_and_token(client, "admin")
     _, token = create_user_and_token(client, "reader_pair_stats")

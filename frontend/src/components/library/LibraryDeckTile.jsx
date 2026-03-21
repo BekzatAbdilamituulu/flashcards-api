@@ -25,7 +25,7 @@ export default function LibraryDeckTile({ deck, onClick }) {
         {deck?.cover_image_url ? (
           <img
             src={deck.cover_image_url}
-            alt={deck.name || "Library deck"}
+            alt={deck.name || "Library source"}
             className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
           />
         ) : (
@@ -47,7 +47,7 @@ export default function LibraryDeckTile({ deck, onClick }) {
 
       <div className="space-y-2 p-3">
         <h3 className="min-h-10 overflow-hidden text-sm font-semibold text-stone-900">
-          {deck?.name || "Untitled set"}
+          {deck?.name || "Untitled collection"}
         </h3>
 
         <div className="flex items-center justify-between gap-2 text-xs text-stone-500">

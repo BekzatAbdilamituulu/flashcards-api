@@ -58,7 +58,7 @@ export default function StudyHomePage() {
     <div className="mx-auto w-full max-w-md">
       <Card className="text-center">
         <h1 className="text-2xl font-bold">Reading review</h1>
-        <p className="mt-2 text-gray-700">Start a reading review with your active learning pair.</p>
+        <p className="mt-2 text-gray-700">Review the words you saved while reading with your active learning pair.</p>
 
         {loading ? <p className="mt-4 text-sm text-gray-500">Loading study options...</p> : null}
         {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
@@ -71,13 +71,13 @@ export default function StudyHomePage() {
 
         {!loading && !error && mainDeck ? (
           <Link to={`/app/study/${mainDeck.id}`} className="mt-4 inline-block w-full">
-            <Button variant="primary" className="w-full">Start reading review</Button>
+            <Button variant="primary" className="w-full">Review from all reading</Button>
           </Link>
         ) : null}
 
         {!loading && !error && mainDeck && sources.length > 0 ? (
           <div className="mt-4 space-y-2 text-left">
-            <p className="text-sm font-medium text-gray-800">Review a specific source</p>
+            <p className="text-sm font-medium text-gray-800">Review from a specific book or source</p>
             <div className="grid gap-2">
               {sources
                 .filter((source) => Number(source?.total_cards ?? 0) > 0)
@@ -89,7 +89,12 @@ export default function StudyHomePage() {
                     className="block"
                   >
                     <Button variant="secondary" className="w-full justify-between">
-                      <span>{source.title}</span>
+                      <span className="text-left">
+                        <span className="block">{source.title}</span>
+                        {source.author ? (
+                          <span className="block text-xs font-normal text-gray-500">{source.author}</span>
+                        ) : null}
+                      </span>
                       <span>{Number(source?.due_cards ?? 0)} due</span>
                     </Button>
                   </Link>

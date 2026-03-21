@@ -145,7 +145,7 @@ def test_inbox_is_per_language_pair(client):
     ru_id = admin_create_language(client, admin_token, "Russian", "ru")
     ky_id = admin_create_language(client, admin_token, "Kyrgyz", "ky")
 
-    # Pre-create main decks/access for each pair (SQLite + flush behavior)
+    # Pre-create main decks/access for each pair before the bulk import step.
     set_default_languages(client, token, en_id, ru_id)
 
     r1 = client.post(

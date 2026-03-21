@@ -13,8 +13,18 @@ import { setCurrentSourceForPair } from "../utils/currentSourceStorage";
 import { memoryStrengthFromCard } from "../utils/memoryStrength";
 
 function extractError(e) {
+  const detail = e?.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
   if (e?.response?.data) return JSON.stringify(e.response.data);
   return e?.message ?? "Request failed";
+}
+
+function extractDeleteError(e) {
+  const detail = String(e?.response?.data?.detail || e?.message || "").toLowerCase();
+  if (detail.includes("cards still reference it")) {
+    return "This source can't be deleted because saved words still reference it. Delete or move those words first.";
+  }
+  return extractError(e);
 }
 
 const PAGE_LIMIT = 20;
@@ -49,9 +59,15 @@ export default function SourceDetailPage() {
   const [cardsError, setCardsError] = useState("");
 
   const [creating, setCreating] = useState(false);
+  const [editingSource, setEditingSource] = useState(false);
+  const [sourceTitle, setSourceTitle] = useState("");
+  const [sourceAuthor, setSourceAuthor] = useState("");
+  const [sourceKind, setSourceKind] = useState("");
+  const [sourceReference, setSourceReference] = useState("");
+  const [savingSource, setSavingSource] = useState(false);
+  const [deletingSource, setDeletingSource] = useState(false);
   const [front, setFront] = useState("");
   const [back, setBack] = useState("");
-  const [example, setExample] = useState("");
   const [contentKind, setContentKind] = useState("word");
   const [sourceSentence, setSourceSentence] = useState("");
   const [sourcePage, setSourcePage] = useState("");
@@ -60,7 +76,6 @@ export default function SourceDetailPage() {
   const [editingId, setEditingId] = useState(null);
   const [editFront, setEditFront] = useState("");
   const [editBack, setEditBack] = useState("");
-  const [editExample, setEditExample] = useState("");
   const [editContentKind, setEditContentKind] = useState("word");
   const [editSourceSentence, setEditSourceSentence] = useState("");
   const [editSourcePage, setEditSourcePage] = useState("");
@@ -126,7 +141,7 @@ export default function SourceDetailPage() {
         setSourceStats(loadedSource);
         setMainDeck(null);
         setCardsPage({ items: detail?.cards ?? [], meta: detail?.meta ?? { total: 0, offset: 0, limit: PAGE_LIMIT, has_more: false } });
-        setError("No main review deck found for this pair.");
+        setError("Reading review is not ready for this pair.");
         return false;
       }
 
@@ -150,9 +165,67 @@ export default function SourceDetailPage() {
     return loadSourceAndDeck(nextOffset);
   }
 
+  function startSourceEdit() {
+    setSourceTitle(source?.title ?? "");
+    setSourceAuthor(source?.author ?? "");
+    setSourceKind(source?.kind ?? "");
+    setSourceReference(source?.reference ?? "");
+    setEditingSource(true);
+    setError("");
+  }
+
+  function cancelSourceEdit() {
+    setEditingSource(false);
+    setSourceTitle("");
+    setSourceAuthor("");
+    setSourceKind("");
+    setSourceReference("");
+  }
+
+  async function saveSource() {
+    if (!source?.id || !sourceTitle.trim()) return;
+
+    setSavingSource(true);
+    setError("");
+    try {
+      await ReadingSourcesApi.update(source.id, {
+        title: sourceTitle.trim(),
+        author: sourceAuthor.trim() ? sourceAuthor.trim() : null,
+        kind: sourceKind.trim() ? sourceKind.trim() : null,
+        reference: sourceReference.trim() ? sourceReference.trim() : null,
+      });
+      cancelSourceEdit();
+      await loadSourceAndDeck(offset);
+    } catch (e) {
+      setError(extractError(e));
+    } finally {
+      setSavingSource(false);
+    }
+  }
+
+  async function deleteSource() {
+    if (!source?.id) return;
+
+    const ok = window.confirm(`Delete "${source.title}"?`);
+    if (!ok) return;
+
+    setDeletingSource(true);
+    setError("");
+    try {
+      await ReadingSourcesApi.delete(source.id);
+      nav("/app/sources");
+    } catch (e) {
+      setError(extractDeleteError(e));
+    } finally {
+      setDeletingSource(false);
+    }
+  }
+
   async function createCard(e) {
     e.preventDefault();
     if (!mainDeck?.id || !front.trim() || !back.trim()) return;
+
+    const sentence = sourceSentence.trim();
 
     setCreating(true);
     setCardsError("");
@@ -160,16 +233,15 @@ export default function SourceDetailPage() {
       await CardsApi.create(mainDeck.id, {
         front: front.trim(),
         back: back.trim(),
-        example_sentence: example.trim() ? example.trim() : null,
+        example_sentence: sentence || null,
         content_kind: contentKind || null,
         reading_source_id: sourceId,
-        source_sentence: sourceSentence.trim() ? sourceSentence.trim() : null,
+        source_sentence: sentence || null,
         source_page: sourcePage.trim() ? sourcePage.trim() : null,
         context_note: contextNote.trim() ? contextNote.trim() : null,
       });
       setFront("");
       setBack("");
-      setExample("");
       setContentKind("word");
       setSourceSentence("");
       setSourcePage("");
@@ -186,9 +258,8 @@ export default function SourceDetailPage() {
     setEditingId(card.id);
     setEditFront(card.front ?? "");
     setEditBack(card.back ?? "");
-    setEditExample(card.example_sentence ?? "");
     setEditContentKind(card.content_kind ?? "word");
-    setEditSourceSentence(card.source_sentence ?? "");
+    setEditSourceSentence(card.source_sentence ?? card.example_sentence ?? "");
     setEditSourcePage(card.source_page ?? "");
     setEditContextNote(card.context_note ?? "");
   }
@@ -205,7 +276,6 @@ export default function SourceDetailPage() {
     setEditingId(null);
     setEditFront("");
     setEditBack("");
-    setEditExample("");
     setEditContentKind("word");
     setEditSourceSentence("");
     setEditSourcePage("");
@@ -215,16 +285,18 @@ export default function SourceDetailPage() {
   async function saveEdit(card) {
     if (!editFront.trim() || !editBack.trim()) return;
 
+    const sentence = editSourceSentence.trim();
+
     setSavingId(card.id);
     setCardsError("");
     try {
       await CardsApi.update(card.deck_id, card.id, {
         front: editFront.trim(),
         back: editBack.trim(),
-        example_sentence: editExample.trim() ? editExample.trim() : null,
+        example_sentence: sentence || null,
         content_kind: editContentKind || null,
         reading_source_id: sourceId,
-        source_sentence: editSourceSentence.trim() ? editSourceSentence.trim() : null,
+        source_sentence: sentence || null,
         source_page: editSourcePage.trim() ? editSourcePage.trim() : null,
         context_note: editContextNote.trim() ? editContextNote.trim() : null,
       });
@@ -403,16 +475,45 @@ export default function SourceDetailPage() {
 
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">
-            {loadingSource ? "Loading source..." : source?.title || `Source #${sourceId}`}
-          </h1>
-          {source ? (
-            <p className="mt-1 text-sm text-gray-500">
-              {source.author ? `${source.author} · ` : ""}
-              {source.kind ? `${source.kind} · ` : ""}
-              {source.reference || ""}
-            </p>
-          ) : null}
+          {editingSource ? (
+            <div className="grid max-w-2xl gap-3">
+              <Input value={sourceTitle} onChange={(e) => setSourceTitle(e.target.value)} placeholder="Title" />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Input
+                  value={sourceAuthor}
+                  onChange={(e) => setSourceAuthor(e.target.value)}
+                  placeholder="Author"
+                />
+                <Input value={sourceKind} onChange={(e) => setSourceKind(e.target.value)} placeholder="Kind" />
+              </div>
+              <Input
+                value={sourceReference}
+                onChange={(e) => setSourceReference(e.target.value)}
+                placeholder="Reference"
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button variant="primary" onClick={saveSource} disabled={savingSource || !sourceTitle.trim()}>
+                  {savingSource ? "Saving..." : "Save source"}
+                </Button>
+                <Button variant="secondary" onClick={cancelSourceEdit} disabled={savingSource}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <h1 className="text-2xl font-bold">
+                {loadingSource ? "Loading source..." : source?.title || `Source #${sourceId}`}
+              </h1>
+              {source ? (
+                <p className="mt-1 text-sm text-gray-500">
+                  {source.author ? `${source.author} · ` : ""}
+                  {source.kind ? `${source.kind} · ` : ""}
+                  {source.reference || ""}
+                </p>
+              ) : null}
+            </>
+          )}
           <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-600 sm:grid-cols-4">
             <div className="rounded-lg border border-gray-200 bg-white px-2 py-2">
               Total words: <span className="font-semibold text-gray-900">{totalWords}</span>
@@ -429,13 +530,15 @@ export default function SourceDetailPage() {
           </div>
         </div>
 
-        <Button
-          variant="primary"
-          onClick={() => (mainDeck?.id ? nav(`/app/study/${mainDeck.id}?sourceId=${sourceId}`) : null)}
-          disabled={!mainDeck?.id}
-        >
-          Review vocabulary
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="primary"
+            onClick={() => (mainDeck?.id ? nav(`/app/study/${mainDeck.id}?sourceId=${sourceId}`) : null)}
+            disabled={!mainDeck?.id || editingSource}
+          >
+            Review from this source
+          </Button>
+        </div>
       </div>
 
       {error ? (
@@ -535,38 +638,44 @@ export default function SourceDetailPage() {
 
       <Card>
         <h2 className="text-lg font-semibold">Save word</h2>
+        <p className="mt-1 text-sm text-gray-600">Capture the word first. Add extra source details only when you need them.</p>
         <form onSubmit={createCard} className="mt-4 grid gap-3">
-          <Input placeholder="Word / entry" value={front} onChange={(e) => setFront(e.target.value)} />
+          <Input placeholder="Word" value={front} onChange={(e) => setFront(e.target.value)} />
           <Input placeholder="Translation / meaning" value={back} onChange={(e) => setBack(e.target.value)} />
-          <label className="grid gap-2">
-            <span className="text-sm text-gray-700">Entry kind</span>
-            <select
-              value={contentKind}
-              onChange={(e) => setContentKind(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black"
-            >
-              {CONTENT_KIND_OPTIONS.map((kind) => (
-                <option key={kind} value={kind}>
-                  {kind}
-                </option>
-              ))}
-            </select>
-          </label>
           <Input
-            placeholder="Source sentence (optional)"
-            value={example}
-            onChange={(e) => setExample(e.target.value)}
+            placeholder="Sentence (optional)"
+            value={sourceSentence}
+            onChange={(e) => setSourceSentence(e.target.value)}
           />
-          <Input
-            placeholder="Source page (optional)"
-            value={sourcePage}
-            onChange={(e) => setSourcePage(e.target.value)}
-          />
-          <Input
-            placeholder="Context note (optional)"
-            value={contextNote}
-            onChange={(e) => setContextNote(e.target.value)}
-          />
+          <details>
+            <summary className="cursor-pointer text-sm font-medium text-gray-700">Advanced details</summary>
+            <div className="mt-3 grid gap-3">
+              <label className="grid gap-2">
+                <span className="text-sm text-gray-700">Entry kind</span>
+                <select
+                  value={contentKind}
+                  onChange={(e) => setContentKind(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black"
+                >
+                  {CONTENT_KIND_OPTIONS.map((kind) => (
+                    <option key={kind} value={kind}>
+                      {kind}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Input
+                placeholder="Source page (optional)"
+                value={sourcePage}
+                onChange={(e) => setSourcePage(e.target.value)}
+              />
+              <Input
+                placeholder="Context note (optional)"
+                value={contextNote}
+                onChange={(e) => setContextNote(e.target.value)}
+              />
+            </div>
+          </details>
           <div className="flex flex-wrap gap-2">
             <Button variant="primary" type="submit" disabled={creating || !front.trim() || !back.trim() || !mainDeck?.id}>
               {creating ? "Saving..." : "Save word"}
@@ -586,6 +695,7 @@ export default function SourceDetailPage() {
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-semibold">Vocabulary from this source</h2>
+            <p className="text-sm text-gray-500">Words, meanings, and sentences tied to this text.</p>
           </div>
         </Card>
 
@@ -607,38 +717,42 @@ export default function SourceDetailPage() {
                 <Card key={card.id}>
                   {isEditing ? (
                     <div className="grid gap-3">
-                      <Input value={editFront} onChange={(e) => setEditFront(e.target.value)} />
-                      <Input value={editBack} onChange={(e) => setEditBack(e.target.value)} />
-                      <label className="grid gap-2">
-                        <span className="text-sm text-gray-700">Entry kind</span>
-                        <select
-                          value={editContentKind}
-                          onChange={(e) => setEditContentKind(e.target.value)}
-                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black"
-                        >
-                          {CONTENT_KIND_OPTIONS.map((kind) => (
-                            <option key={kind} value={kind}>
-                              {kind}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <Input value={editExample} onChange={(e) => setEditExample(e.target.value)} />
+                      <Input value={editFront} onChange={(e) => setEditFront(e.target.value)} placeholder="Word" />
+                      <Input value={editBack} onChange={(e) => setEditBack(e.target.value)} placeholder="Translation / meaning" />
                       <Input
                         value={editSourceSentence}
                         onChange={(e) => setEditSourceSentence(e.target.value)}
-                        placeholder="Source sentence"
+                        placeholder="Sentence (optional)"
                       />
-                      <Input
-                        value={editSourcePage}
-                        onChange={(e) => setEditSourcePage(e.target.value)}
-                        placeholder="Source page"
-                      />
-                      <Input
-                        value={editContextNote}
-                        onChange={(e) => setEditContextNote(e.target.value)}
-                        placeholder="Context note"
-                      />
+                      <details>
+                        <summary className="cursor-pointer text-sm font-medium text-gray-700">Advanced details</summary>
+                        <div className="mt-3 grid gap-3">
+                          <label className="grid gap-2">
+                            <span className="text-sm text-gray-700">Entry kind</span>
+                            <select
+                              value={editContentKind}
+                              onChange={(e) => setEditContentKind(e.target.value)}
+                              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black"
+                            >
+                              {CONTENT_KIND_OPTIONS.map((kind) => (
+                                <option key={kind} value={kind}>
+                                  {kind}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <Input
+                            value={editSourcePage}
+                            onChange={(e) => setEditSourcePage(e.target.value)}
+                            placeholder="Source page"
+                          />
+                          <Input
+                            value={editContextNote}
+                            onChange={(e) => setEditContextNote(e.target.value)}
+                            placeholder="Context note"
+                          />
+                        </div>
+                      </details>
                       <div className="flex flex-wrap gap-2">
                         <Button
                           variant="primary"

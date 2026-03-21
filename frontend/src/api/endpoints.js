@@ -28,6 +28,7 @@ export const AuthApi = {
     api.post("/api/v1/auth/register", { username, password }),
   login: (username, password) =>
     api.post("/api/v1/auth/login-json", { username, password }),
+  google: (id_token) => api.post("/api/v1/auth/google", { id_token }),
   refresh: (payload) => api.post("/api/v1/auth/refresh", payload),
   logout: (refresh_token) => api.post("/api/v1/auth/logout", { refresh_token }),
 };
@@ -122,6 +123,8 @@ export const ReadingSourcesApi = {
   list: (params = {}) => api.get("/api/v1/reading-sources", { params }),
   create: (payload) => api.post("/api/v1/reading-sources", payload),
   get: (sourceId) => api.get(`/api/v1/reading-sources/${sourceId}`),
+  update: (sourceId, payload) => api.patch(`/api/v1/reading-sources/${sourceId}`, payload),
+  delete: (sourceId) => api.delete(`/api/v1/reading-sources/${sourceId}`),
   getDetail: (sourceId, limit = 50, offset = 0) =>
     api.get(`/api/v1/reading-sources/${sourceId}/detail`, { params: { limit, offset } }),
   listCards: (sourceId, limit = 50, offset = 0) =>

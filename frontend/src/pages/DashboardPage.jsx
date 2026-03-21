@@ -92,6 +92,13 @@ export default function DashboardPage() {
   const [editFront, setEditFront] = useState("");
   const [editBack, setEditBack] = useState("");
   const [editExample, setEditExample] = useState("");
+  const [editReadingSourceId, setEditReadingSourceId] = useState("");
+  const [editSourceTitle, setEditSourceTitle] = useState("");
+  const [editSourceAuthor, setEditSourceAuthor] = useState("");
+  const [editSourceKind, setEditSourceKind] = useState("");
+  const [editSourceReference, setEditSourceReference] = useState("");
+  const [editSourcePage, setEditSourcePage] = useState("");
+  const [editContextNote, setEditContextNote] = useState("");
   const [busyCardAction, setBusyCardAction] = useState(false);
   const [wordsOpen, setWordsOpen] = useState(false);
   const [incompleteOpen, setIncompleteOpen] = useState(false);
@@ -263,11 +270,24 @@ useEffect(() => {
   }
 
   function startEdit(deckId, card) {
+    const fallbackSourceId =
+      card?.reading_source_id != null
+        ? String(card.reading_source_id)
+        : currentSourceId != null
+          ? String(currentSourceId)
+          : "";
     setEditingDeckId(deckId);
     setEditingCardId(card.id);
     setEditFront(card.front || "");
     setEditBack(card.back || "");
-    setEditExample(card.example_sentence || "");
+    setEditExample(card.source_sentence || card.example_sentence || "");
+    setEditReadingSourceId(fallbackSourceId);
+    setEditSourceTitle(card.source_title || "");
+    setEditSourceAuthor(card.source_author || "");
+    setEditSourceKind(card.source_kind || "");
+    setEditSourceReference(card.source_reference || "");
+    setEditSourcePage(card.source_page || "");
+    setEditContextNote(card.context_note || "");
   }
 
   function cancelEdit() {
@@ -276,17 +296,42 @@ useEffect(() => {
     setEditFront("");
     setEditBack("");
     setEditExample("");
+    setEditReadingSourceId("");
+    setEditSourceTitle("");
+    setEditSourceAuthor("");
+    setEditSourceKind("");
+    setEditSourceReference("");
+    setEditSourcePage("");
+    setEditContextNote("");
   }
 
-  async function updateCard(deckId, cardId) {
+  async function updateCard(deckId, card) {
     if (!editFront.trim() || !editBack.trim()) return;
     setBusyCardAction(true);
+    const selectedSource = readingSources.find(
+      (source) => String(source.id) === String(editReadingSourceId)
+    );
     try {
-      await CardsApi.update(deckId, cardId, {
+      await CardsApi.update(deckId, card.id, {
         front: editFront.trim(),
         back: editBack.trim(),
         example_sentence: editExample.trim() ? editExample.trim() : null,
+        source_sentence: editExample.trim() ? editExample.trim() : null,
+        source_page: editSourcePage.trim() ? editSourcePage.trim() : null,
+        context_note: editContextNote.trim() ? editContextNote.trim() : null,
+        ...(editReadingSourceId
+          ? { reading_source_id: Number(editReadingSourceId) }
+          : {
+              source_title: editSourceTitle.trim() ? editSourceTitle.trim() : null,
+              source_author: editSourceAuthor.trim() ? editSourceAuthor.trim() : null,
+              source_kind: editSourceKind.trim() ? editSourceKind.trim() : null,
+              source_reference: editSourceReference.trim() ? editSourceReference.trim() : null,
+            }),
       });
+      if (activePair?.id && selectedSource) {
+        setCurrentSourceForPair(activePair.id, selectedSource.id);
+        setCurrentSourceId(selectedSource.id);
+      }
       cancelEdit();
       await load();
     } catch (e) {
@@ -368,17 +413,35 @@ useEffect(() => {
 
   function handleSourceSelectionChange(value) {
     setSelectedReadingSourceId(value);
-    if (!activePair?.id) return;
-    if (!value) {
-      clearCurrentSourceForPair(activePair.id);
-      setCurrentSourceId(null);
-      return;
-    }
+    if (!activePair?.id || !value) return;
     const nextId = Number(value);
     if (Number.isFinite(nextId) && nextId > 0) {
       setCurrentSourceForPair(activePair.id, nextId);
       setCurrentSourceId(nextId);
     }
+  }
+
+  function renderSourceSummary(source) {
+    if (!source) return null;
+    return (
+      <div
+        style={{
+          fontSize: 12,
+          opacity: 0.8,
+          border: "1px solid #e5e7eb",
+          borderRadius: 10,
+          padding: "8px 10px",
+          background: "#f8fafc",
+        }}
+      >
+        <div style={{ fontWeight: 600 }}>{source.title}</div>
+        <div>
+          {source.author || "Unknown author"}
+          {source.kind ? ` · ${source.kind}` : ""}
+        </div>
+        {source.reference ? <div>{source.reference}</div> : null}
+      </div>
+    );
   }
 
   async function submitAdd(e) {
@@ -394,7 +457,7 @@ useEffect(() => {
 
     const targetDeck = mainDeckCards.find((entry) => isMainDeck(entry.deck)) ?? mainDeckCards[0] ?? null;
     if (!targetDeck?.deck?.id) {
-      setAddMsg("No main review deck is available for the active pair yet.");
+      setAddMsg("Reading review is not ready for the active pair yet.");
       return;
     }
 
@@ -474,6 +537,14 @@ useEffect(() => {
     currentSourceId != null
       ? readingSources.find((source) => Number(source.id) === Number(currentSourceId)) ?? null
       : null;
+  const selectedSource =
+    selectedReadingSourceId != null && selectedReadingSourceId !== ""
+      ? readingSources.find((source) => String(source.id) === String(selectedReadingSourceId)) ?? null
+      : null;
+  const editingSource =
+    editReadingSourceId != null && editReadingSourceId !== ""
+      ? readingSources.find((source) => String(source.id) === String(editReadingSourceId)) ?? null
+      : null;
   const totalSources = readingSources.length;
   const totalSourceWords = readingSources.reduce(
     (sum, source) => sum + Number(source?.total_cards ?? 0),
@@ -530,7 +601,7 @@ useEffect(() => {
 
       {activePair && mainDeckCards.length === 0 ? (
         <div style={{ padding: 12, background: "#fff3cd", marginTop: 14 }}>
-          No main review deck found for this pair yet.
+          Reading review is not ready for this pair yet.
         </div>
       ) : null}
 
@@ -696,7 +767,7 @@ useEffect(() => {
           </button>
           {!hasStudyableCards ? (
             <div style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
-              Save a few words in this source to start reviewing.
+              Save a few words from your reading to start reviewing.
             </div>
           ) : null}
         </div>
@@ -715,11 +786,11 @@ useEffect(() => {
               fontWeight: 600,
             }}
           >
-            Words ({sectionCards.length})
+            Saved words ({sectionCards.length})
           </summary>
           <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
             {sectionCards.length === 0 ? (
-              <div style={{ fontSize: 13, opacity: 0.7, padding: 8 }}>No words in this source yet.</div>
+              <div style={{ fontSize: 13, opacity: 0.7, padding: 8 }}>No saved words from your reading yet.</div>
             ) : (
               sectionCards.map((card) => {
                 const isEditing =
@@ -755,11 +826,99 @@ useEffect(() => {
                           style={{ width: "100%" }}
                           placeholder="Source sentence"
                         />
+                        <details>
+                          <summary style={{ cursor: "pointer", fontWeight: 600 }}>Source and advanced details</summary>
+                          <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+                            <label>
+                              Book or source
+                              <select
+                                value={editReadingSourceId}
+                                onChange={(e) => setEditReadingSourceId(e.target.value)}
+                                style={{ width: "100%" }}
+                              >
+                                {!card?.reading_source_id ? (
+                                  <option value="">No linked source</option>
+                                ) : null}
+                                {readingSources.map((source) => (
+                                  <option key={source.id} value={source.id}>
+                                    {source.title}
+                                    {source.author ? ` — ${source.author}` : ""}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            {editingSource ? (
+                              <>
+                                <div style={{ fontSize: 12, opacity: 0.75 }}>
+                                  Source metadata will autofill from the linked source. You can still edit page and notes.
+                                </div>
+                                {renderSourceSummary(editingSource)}
+                              </>
+                            ) : (
+                              <>
+                                <label>
+                                  Source title
+                                  <input
+                                    value={editSourceTitle}
+                                    onChange={(e) => setEditSourceTitle(e.target.value)}
+                                    style={{ width: "100%" }}
+                                    placeholder="Book or text title"
+                                  />
+                                </label>
+                                <label>
+                                  Author
+                                  <input
+                                    value={editSourceAuthor}
+                                    onChange={(e) => setEditSourceAuthor(e.target.value)}
+                                    style={{ width: "100%" }}
+                                    placeholder="Optional"
+                                  />
+                                </label>
+                                <label>
+                                  Kind
+                                  <input
+                                    value={editSourceKind}
+                                    onChange={(e) => setEditSourceKind(e.target.value)}
+                                    style={{ width: "100%" }}
+                                    placeholder="book, article, essay..."
+                                  />
+                                </label>
+                                <label>
+                                  Reference
+                                  <input
+                                    value={editSourceReference}
+                                    onChange={(e) => setEditSourceReference(e.target.value)}
+                                    style={{ width: "100%" }}
+                                    placeholder="Chapter, location, URL..."
+                                  />
+                                </label>
+                              </>
+                            )}
+                            <label>
+                              Source page
+                              <input
+                                value={editSourcePage}
+                                onChange={(e) => setEditSourcePage(e.target.value)}
+                                style={{ width: "100%" }}
+                                placeholder="e.g. p. 42"
+                              />
+                            </label>
+                            <label>
+                              Context note
+                              <input
+                                value={editContextNote}
+                                onChange={(e) => setEditContextNote(e.target.value)}
+                                style={{ width: "100%" }}
+                                placeholder="Short note (optional)"
+                              />
+                            </label>
+                          </div>
+                        </details>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           <button
                             style={{ padding: "6px 10px" }}
                             disabled={busyCardAction || !editFront.trim() || !editBack.trim()}
-                            onClick={() => updateCard(primaryDeck.deck.id, card.id)}
+                            onClick={() => updateCard(primaryDeck.deck.id, card)}
                           >
                             Update
                           </button>
@@ -958,11 +1117,6 @@ useEffect(() => {
               autoFocus
             />
           </label>
-<div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-  <strong>Preview meaning</strong>
-  {previewLoading ? <span>Loading...</span> : null}
-  {previewMsg ? <span style={{ color: "crimson" }}>{previewMsg}</span> : null}
-</div>
 
           <label>
             Translation / meaning ({titleRight})
@@ -976,80 +1130,48 @@ useEffect(() => {
               placeholder="Auto-filled when available"
             />
           </label>
+          <div style={{ fontSize: 12, opacity: 0.75 }}>
+            {previewLoading ? "Looking up meaning..." : "Meaning auto-fills when available. You can edit it."}
+            {previewMsg ? <span style={{ color: "crimson", marginLeft: 8 }}>{previewMsg}</span> : null}
+          </div>
 
           <label>
-            Source (optional)
-            <select
-              value={selectedReadingSourceId}
-              onChange={(e) => handleSourceSelectionChange(e.target.value)}
+            Sentence (optional)
+            <input
+              value={sourceSentence}
+              onChange={(e) => setSourceSentence(e.target.value)}
               style={{ width: "100%" }}
-            >
-              <option value="">No source</option>
-              {readingSources.map((source) => (
-                <option key={source.id} value={source.id}>
-                  {source.title}
-                  {source.author ? ` — ${source.author}` : ""}
-                </option>
-              ))}
-            </select>
+              placeholder="Sentence where you found this word"
+            />
           </label>
 
-          {!selectedReadingSourceId ? (
-            <details>
-              <summary style={{ cursor: "pointer", fontWeight: 600 }}>Create source inline (optional)</summary>
-              <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
-                <label>
-                  Source title
-                  <input
-                    value={newSourceTitle}
-                    onChange={(e) => setNewSourceTitle(e.target.value)}
-                    style={{ width: "100%" }}
-                    placeholder="Book or text title"
-                  />
-                </label>
-                <label>
-                  Author
-                  <input
-                    value={newSourceAuthor}
-                    onChange={(e) => setNewSourceAuthor(e.target.value)}
-                    style={{ width: "100%" }}
-                    placeholder="Optional"
-                  />
-                </label>
-                <label>
-                  Kind
-                  <input
-                    value={newSourceKind}
-                    onChange={(e) => setNewSourceKind(e.target.value)}
-                    style={{ width: "100%" }}
-                    placeholder="book, article, essay..."
-                  />
-                </label>
-                <label>
-                  Reference
-                  <input
-                    value={newSourceReference}
-                    onChange={(e) => setNewSourceReference(e.target.value)}
-                    style={{ width: "100%" }}
-                    placeholder="Chapter, location, URL..."
-                  />
-                </label>
-              </div>
-            </details>
-          ) : null}
-
           <details>
-            <summary style={{ cursor: "pointer", fontWeight: 600 }}>Add context from book</summary>
+            <summary style={{ cursor: "pointer", fontWeight: 600 }}>Source and advanced details</summary>
             <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
               <label>
-                Source sentence
-                <input
-                  value={sourceSentence}
-                  onChange={(e) => setSourceSentence(e.target.value)}
+                Book or source (optional)
+                <select
+                  value={selectedReadingSourceId}
+                  onChange={(e) => handleSourceSelectionChange(e.target.value)}
                   style={{ width: "100%" }}
-                  placeholder="Sentence where you found this word"
-                />
+                >
+                  <option value="">No source yet</option>
+                  {readingSources.map((source) => (
+                    <option key={source.id} value={source.id}>
+                      {source.title}
+                      {source.author ? ` — ${source.author}` : ""}
+                    </option>
+                  ))}
+                </select>
               </label>
+              {selectedSource ? (
+                <>
+                  <div style={{ fontSize: 12, opacity: 0.75 }}>
+                    Source metadata will autofill from the current linked source. You can still edit page and notes.
+                  </div>
+                  {renderSourceSummary(selectedSource)}
+                </>
+              ) : null}
               <label>
                 Source page
                 <input
@@ -1068,6 +1190,46 @@ useEffect(() => {
                   placeholder="Short note (optional)"
                 />
               </label>
+              {!selectedReadingSourceId ? (
+                <>
+                  <label>
+                    Source title
+                    <input
+                      value={newSourceTitle}
+                      onChange={(e) => setNewSourceTitle(e.target.value)}
+                      style={{ width: "100%" }}
+                      placeholder="Book or text title"
+                    />
+                  </label>
+                  <label>
+                    Author
+                    <input
+                      value={newSourceAuthor}
+                      onChange={(e) => setNewSourceAuthor(e.target.value)}
+                      style={{ width: "100%" }}
+                      placeholder="Optional"
+                    />
+                  </label>
+                  <label>
+                    Kind
+                    <input
+                      value={newSourceKind}
+                      onChange={(e) => setNewSourceKind(e.target.value)}
+                      style={{ width: "100%" }}
+                      placeholder="book, article, essay..."
+                    />
+                  </label>
+                  <label>
+                    Reference
+                    <input
+                      value={newSourceReference}
+                      onChange={(e) => setNewSourceReference(e.target.value)}
+                      style={{ width: "100%" }}
+                      placeholder="Chapter, location, URL..."
+                    />
+                  </label>
+                </>
+              ) : null}
             </div>
           </details>
 

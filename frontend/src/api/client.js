@@ -1,8 +1,10 @@
 import axios from "axios";
 import { tokens } from "./tokens";
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
+  baseURL: API_BASE_URL,
   timeout: 15000,
 });
 
@@ -32,7 +34,7 @@ api.interceptors.response.use(
     try {
       if (!refreshingPromise) {
         refreshingPromise = axios.post(
-          `${import.meta.env.VITE_API_BASE_URL}/api/v1/auth/refresh`,
+          `${API_BASE_URL}/api/v1/auth/refresh`,
           { refresh_token: refresh },
           { timeout: 15000 }
         );

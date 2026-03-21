@@ -90,7 +90,7 @@
   <text x="890" y="416" class="label">Models + Database</text>
   <text x="890" y="442" class="text">SQLAlchemy ORM models</text>
   <text x="890" y="466" class="text">User • Deck • Card • UserCardProgress</text>
-  <text x="890" y="490" class="text">SQLite (dev) / Postgres (prod)</text>
+  <text x="890" y="490" class="text">PostgreSQL (dev / test / prod)</text>
 
   <rect x="890" y="510" width="220" height="28" class="pill"></rect>
   <text x="902" y="529" class="pillText">Alembic migrations</text>

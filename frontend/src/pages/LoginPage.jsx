@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { AuthApi, UsersApi } from "../api/endpoints";
+import { AuthApi } from "../api/endpoints";
 import { tokens } from "../api/tokens";
 import Button from "../components/Button";
 import Card from "../components/Card";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 import Input from "../components/Input";
+import { completeSignIn } from "../utils/completeSignIn";
 
 function extractError(e) {
   if (e?.response?.data) return JSON.stringify(e.response.data);
@@ -25,13 +27,22 @@ export default function LoginPage() {
 
     try {
       const res = await AuthApi.login(username.trim(), password);
-      tokens.set(res.data);
+      await completeSignIn(res.data, nav);
+    } catch (e2) {
+      tokens.clear();
+      setError(extractError(e2));
+    } finally {
+      setBusy(false);
+    }
+  }
 
-      const pairsRes = await UsersApi.pairs();
-      const pairs = pairsRes.data ?? [];
+  async function onGoogleCredential(idToken) {
+    setBusy(true);
+    setError("");
 
-      if (pairs.length === 0) nav("/onboarding", { replace: true });
-      else nav("/app", { replace: true });
+    try {
+      const res = await AuthApi.google(idToken);
+      await completeSignIn(res.data, nav);
     } catch (e2) {
       tokens.clear();
       setError(extractError(e2));
@@ -69,6 +80,17 @@ export default function LoginPage() {
           <Button type="submit" variant="primary" disabled={busy} className="w-full">
             {busy ? "Logging in..." : "Login"}
           </Button>
+
+          <div className="grid gap-2">
+            <div className="relative py-1 text-center text-xs uppercase tracking-[0.2em] text-gray-400">
+              <span className="bg-white px-2">Or</span>
+            </div>
+            <GoogleSignInButton
+              disabled={busy}
+              onCredential={onGoogleCredential}
+              onError={setError}
+            />
+          </div>
 
           {error ? (
             <pre className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">{error}</pre>

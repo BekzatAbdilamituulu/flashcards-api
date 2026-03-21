@@ -32,6 +32,33 @@ function buildClozeSentence(sentence, word) {
   return null;
 }
 
+function renderSentenceWithEmphasis(sentence, word, className) {
+  const sourceSentence = String(sentence || "").trim();
+  const sourceWord = String(word || "").trim();
+  if (!sourceSentence) return null;
+  if (!sourceWord) return <span className={className}>{sourceSentence}</span>;
+
+  const safeWord = escapeRegExp(sourceWord);
+  const regex = new RegExp(`(${safeWord})`, "gi");
+  const parts = sourceSentence.split(regex);
+
+  return (
+    <span className={className}>
+      {parts.map((part, index) => {
+        const matchesWord = part && part.localeCompare(sourceWord, undefined, { sensitivity: "accent" }) === 0;
+        if (!matchesWord && part.toLowerCase() !== sourceWord.toLowerCase()) {
+          return <span key={`${part}-${index}`}>{part}</span>;
+        }
+        return (
+          <mark key={`${part}-${index}`} className="rounded bg-amber-100 px-1 text-inherit">
+            {part}
+          </mark>
+        );
+      })}
+    </span>
+  );
+}
+
 function formatLocalDateTime(value) {
   if (!value) return null;
   const date = new Date(value);
@@ -67,6 +94,7 @@ export default function StudyPage() {
   const reviewSentence = current?.source_sentence || current?.example_sentence || null;
   const savedAtLabel = formatLocalDateTime(current?.created_at);
   const memoryStrength = memoryStrengthFromCard(current);
+  const sourceContextLabel = sourceMeta?.kind || current?.source_kind || "Book";
   const remaining = useMemo(() => {
     if (!batch?.cards?.length) return 0;
     return Math.max(0, batch.cards.length - idx - 1);
@@ -132,7 +160,7 @@ export default function StudyPage() {
           setDeckName("");
           setDeckMeta(null);
           setSourceMeta(null);
-          setError("This study deck is not available for the active pair.");
+          setError("This review is not available for the active pair.");
           setLoading(false);
           return;
         }
@@ -155,7 +183,7 @@ export default function StudyPage() {
     if (id > 0) {
       loadDeck();
     } else {
-      setError("Invalid study deck id.");
+      setError("Invalid review id.");
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -163,17 +191,20 @@ export default function StudyPage() {
 
   return (
     <div className="mx-auto w-full max-w-md space-y-4 pb-8">
-      <div className="rounded-xl border border-gray-200 bg-white p-3">
+      <div className="rounded-2xl border border-stone-200 bg-gradient-to-br from-stone-50 via-white to-amber-50 p-4">
         <div className="flex items-center justify-between gap-3">
-          <div className="h-11 w-11" />
+          <div className="rounded-xl bg-white/80 px-3 py-2 text-left shadow-sm">
+            <p className="text-[11px] uppercase tracking-[0.24em] text-stone-500">Reading memory</p>
+            <p className="text-sm font-semibold text-stone-900">{sourceContextLabel}</p>
+          </div>
           <div className="text-center">
-            <p className="text-xs text-gray-500">Reading review</p>
-            <p className="text-sm font-medium text-gray-900">{reviewSourceTitle}</p>
+            <p className="text-xs text-stone-500">Reviewing from</p>
+            <p className="text-sm font-semibold text-stone-900">{reviewSourceTitle}</p>
             {reviewSourceAuthor ? (
-              <p className="text-xs text-gray-500">{reviewSourceAuthor}</p>
+              <p className="text-xs text-stone-500">{reviewSourceAuthor}</p>
             ) : null}
           </div>
-          <div className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700">
+          <div className="rounded-xl bg-white px-3 py-2 text-sm font-medium text-stone-700 shadow-sm">
             {idx + 1} / {batch?.cards?.length ?? 0}
           </div>
         </div>
@@ -191,6 +222,14 @@ export default function StudyPage() {
             <div className="pointer-events-none absolute inset-x-3 top-3 h-full rounded-2xl border border-gray-200 bg-gray-50" />
             <div className="pointer-events-none absolute inset-x-1 top-1 h-full rounded-2xl border border-gray-200 bg-gray-100" />
             <Card className="relative rounded-2xl px-6 py-8 text-center shadow-sm">
+              <div className="mb-6 flex flex-wrap items-center justify-center gap-2 text-[11px] uppercase tracking-[0.22em] text-stone-500">
+                <span className="rounded-full bg-stone-100 px-3 py-1">Reading review</span>
+                {current.source_page ? (
+                  <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-900">
+                    Page {current.source_page}
+                  </span>
+                ) : null}
+              </div>
               <div className="flex min-h-[220px] items-center justify-center">
                 {!revealed ? (
                   <div className="space-y-4">
@@ -208,51 +247,47 @@ export default function StudyPage() {
                         ))}
                       </p>
                     ) : (
-                      <p className="text-4xl font-bold leading-tight text-black">{current.front}</p>
+                      <>
+                        <p className="text-xs uppercase tracking-[0.24em] text-stone-500">Word to remember</p>
+                        <p className="text-4xl font-bold leading-tight text-black">{current.front}</p>
+                      </>
                     )}
                     {reviewSentence ? (
-                      <p className="text-sm text-gray-500">
-                        {isClozeMode ? "Fill the blank from context." : `Source sentence: ${reviewSentence}`}
-                      </p>
+                      <div className="space-y-2 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-4 text-left">
+                        <p className="text-xs uppercase tracking-[0.24em] text-stone-500">
+                          {isClozeMode ? "Fill the blank from the sentence" : "Seen in the book"}
+                        </p>
+                        {renderSentenceWithEmphasis(reviewSentence, current.front, "text-base leading-relaxed text-stone-800")}
+                      </div>
                     ) : null}
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {isClozeMode ? (
-                      <>
-                        <p className="text-xs uppercase tracking-wide text-gray-500">Context</p>
-                        <p className="text-lg leading-relaxed text-black">{reviewSentence}</p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-xs uppercase tracking-wide text-gray-500">Word</p>
-                        <p className="text-3xl font-bold leading-tight text-black">{current.front}</p>
-                      </>
-                    )}
-                    <p className="text-xs uppercase tracking-wide text-gray-500">
-                      {isClozeMode ? "Word" : "Meaning"}
-                    </p>
-                    <p className="text-2xl font-semibold leading-tight text-gray-900">
-                      {isClozeMode ? current.front : current.back}
-                    </p>
-                    <p className="text-xs uppercase tracking-wide text-gray-500">Meaning</p>
-                    <p className="text-2xl font-semibold leading-tight text-gray-900">{current.back}</p>
-                    {current.source_page ? (
-                      <p className="text-sm text-gray-600">Source page: {current.source_page}</p>
-                    ) : null}
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-[0.24em] text-stone-500">Word</p>
+                      <p className="text-3xl font-bold leading-tight text-black">{current.front}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-[0.24em] text-stone-500">Meaning</p>
+                      <p className="text-2xl font-semibold leading-tight text-gray-900">{current.back}</p>
+                    </div>
                     {reviewSentence ? (
-                      <p className="text-sm text-gray-600">Source sentence: {reviewSentence}</p>
+                      <div className="space-y-2 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-4 text-left">
+                        <p className="text-xs uppercase tracking-[0.24em] text-stone-500">Sentence from the book</p>
+                        {renderSentenceWithEmphasis(reviewSentence, current.front, "text-lg leading-relaxed text-stone-900")}
+                      </div>
                     ) : null}
-                    <p className="text-sm text-gray-600">Memory strength: {memoryStrength}</p>
-                    {reviewSourceTitle ? (
-                      <p className="text-sm text-gray-600">
-                        Source: {reviewSourceTitle}
-                        {reviewSourceAuthor ? ` · ${reviewSourceAuthor}` : ""}
-                      </p>
-                    ) : null}
-                    {savedAtLabel ? (
-                      <p className="text-sm text-gray-600">Saved: {savedAtLabel}</p>
-                    ) : null}
+                    <div className="grid gap-2 text-left text-sm text-stone-600">
+                      <p>Memory strength: {memoryStrength}</p>
+                      {reviewSourceTitle ? (
+                        <p>
+                          Source: {reviewSourceTitle}
+                          {reviewSourceAuthor ? ` · ${reviewSourceAuthor}` : ""}
+                        </p>
+                      ) : null}
+                      {current.source_page ? <p>Page: {current.source_page}</p> : null}
+                      {savedAtLabel ? <p>Saved: {savedAtLabel}</p> : null}
+                    </div>
                   </div>
                 )}
               </div>

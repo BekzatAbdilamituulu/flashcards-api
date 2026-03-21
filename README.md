@@ -4,7 +4,7 @@ Monorepo for a reading-centered language learning app.
 
 DeepLex helps users save words from books and texts, organize them by source, and review them through contextual study.
 
-- `backend/`: FastAPI API + SQLite + Alembic
+- `backend/`: FastAPI API + PostgreSQL + Alembic
 - `frontend/`: React + Vite client
 
 This README reflects the current project after the latest source/study/dashboard refactor pass.
@@ -48,6 +48,7 @@ A word saved from a book should typically:
 - JWT auth with refresh tokens:
   - register
   - login
+  - Google sign-in via verified Google ID token -> DeepLex JWT exchange
   - refresh rotation
   - logout
 - User profile and learning pair management:
@@ -167,7 +168,7 @@ A word saved from a book should typically:
 - FastAPI
 - SQLAlchemy
 - Alembic
-- SQLite
+- PostgreSQL
 - Pydantic v2
 - python-jose + passlib/bcrypt
 - httpx
@@ -193,6 +194,7 @@ All API routes are under:
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/login-json`
+- `POST /api/v1/auth/google`
 - `POST /api/v1/auth/refresh`
 - `POST /api/v1/auth/logout`
 
@@ -259,31 +261,75 @@ All API routes are under:
 ### 1) Backend
 
 ```bash
+docker compose up -d postgres
 cd backend
 python -m venv .venv
 source .venv/bin/activate   # Linux/macOS
 # .venv\Scripts\activate   # Windows
 pip install -r requirements.txt
+cp .env.example .env
 alembic upgrade head
 uvicorn app.main:app --reload
 ```
+
+Default local backend database:
+- `postgresql://postgres:postgres@localhost:5432/deeplex`
+
+The bundled Docker Compose setup also creates:
+- `deeplex_test` for the backend test suite
+
+Required backend auth env:
+- `GOOGLE_CLIENT_ID` for Google sign-in
 
 ### 2) Frontend
 
 ```bash
 cd frontend
 npm install
+cp .env.example .env
 npm run dev
 ```
 
 Typical frontend URL:
 - `http://127.0.0.1:5173`
 
+Required frontend auth env:
+- `VITE_GOOGLE_CLIENT_ID` must match the Google web client configured for the frontend origin
+
+### Google Auth API
+
+`POST /api/v1/auth/google`
+
+Request body:
+
+```json
+{
+  "id_token": "google-id-token"
+}
+```
+
+Response body matches the existing auth token payload:
+
+```json
+{
+  "access_token": "...",
+  "refresh_token": "...",
+  "token_type": "bearer"
+}
+```
+
+Failure cases:
+- invalid or mismatched Google token
+- unverified Google email
+- existing DeepLex account with the same email but no Google link
+- missing `GOOGLE_CLIENT_ID` server configuration
+
 ## Tests
 
 Run backend tests:
 
 ```bash
+docker compose up -d postgres
 cd backend
 pytest
 ```
@@ -292,3 +338,95 @@ pytest
 
 - Admin access is username-based via `ADMIN_USERNAMES` environment variable.
 - The current repo is a monorepo, so CI/test workflows should run with the correct working directory instead of assuming repo root files exist.
+
+## Deploy On Render
+
+This repo is set up for a split Render deployment:
+
+- backend: Render web service from `backend/`
+- frontend: Render static site from `frontend/`
+- database: Render Postgres, connected through `DATABASE_URL`
+
+The repo root includes a [`render.yaml`](/home/bekzat/Desktop/cortex/render.yaml) blueprint for the backend and frontend services. It intentionally leaves secrets and environment-specific values unsynced so they can be entered in Render.
+
+### Backend service
+
+Root directory:
+- `backend`
+
+Build command:
+
+```bash
+pip install -r requirements.txt
+```
+
+Start command:
+
+```bash
+./entrypoint.sh
+```
+
+Behavior:
+- binds to Render's `PORT`
+- runs `alembic upgrade head` on start when `RUN_MIGRATIONS_ON_START=1`
+- uses PostgreSQL through `DATABASE_URL` in every environment
+
+Required backend env vars:
+- `APP_ENV=production`
+- `DEBUG=false`
+- `DATABASE_URL` = Render Postgres connection string
+- `SECRET_KEY` = strong random value, minimum 32 characters
+- `REFRESH_SECRET_KEY` = strong random value, minimum 32 characters
+- `BACKEND_CORS_ORIGINS` = frontend origin, for example `https://your-frontend.onrender.com`
+- `ALLOWED_HOSTS` = backend hostnames, for example `your-api.onrender.com`
+- `GOOGLE_CLIENT_ID` = Google OAuth web client ID used by the frontend
+
+Optional backend env vars:
+- `RUN_MIGRATIONS_ON_START=1`
+- `MYMEMORY_DE_EMAIL`
+- `ADMIN_USERNAMES`
+
+### Frontend service
+
+Use a Render static site.
+
+Root directory:
+- `frontend`
+
+Build command:
+
+```bash
+npm ci && npm run build
+```
+
+Publish directory:
+
+```bash
+dist
+```
+
+Required frontend env vars:
+- `VITE_API_BASE_URL` = backend public URL, for example `https://your-api.onrender.com`
+- `VITE_GOOGLE_CLIENT_ID` = same Google OAuth web client ID as the backend
+
+The static site needs an SPA rewrite from `/*` to `/index.html`. That is already included in [`render.yaml`](/home/bekzat/Desktop/cortex/render.yaml).
+
+### Render Postgres
+
+The included [`render.yaml`](/home/bekzat/Desktop/cortex/render.yaml) provisions a Render Postgres database and wires the backend `DATABASE_URL` from that service automatically.
+
+The backend normalizes legacy `postgres://...` URLs to `postgresql://...` for SQLAlchemy compatibility.
+
+### Google OAuth
+
+To keep Google sign-in working after deployment, update the Google Cloud OAuth client configuration with:
+
+- authorized JavaScript origin: frontend public URL
+- if needed for your Google setup, the backend public URL as an allowed origin as well
+
+Then set both:
+
+- backend `GOOGLE_CLIENT_ID`
+- frontend `VITE_GOOGLE_CLIENT_ID`
+
+to that same web client ID.

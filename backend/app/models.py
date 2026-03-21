@@ -28,6 +28,9 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=True)
+    google_sub = Column(String, unique=True, index=True, nullable=True)
+    email_verified = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # user goals
@@ -164,6 +167,13 @@ class DeckRole(enum.Enum):
     VIEWER = "viewer"
 
 
+class ContentKind(enum.Enum):
+    WORD = "word"
+    PHRASE = "phrase"
+    QUOTE = "quote"
+    IDEA = "idea"
+
+
 class DeckAccess(Base):
     __tablename__ = "deck_access"
 
@@ -188,8 +198,15 @@ class Card(Base):
     back = Column(String, nullable=True)
     example_sentence = Column(String, nullable=True)
     # DeepLex main use-case: saved vocabulary from reading context.
-    # content_kind can be word/phrase/quote/idea-like values.
-    content_kind = Column(String, nullable=False, default="word")
+    content_kind = Column(
+        Enum(
+            ContentKind,
+            values_callable=lambda obj: [e.value for e in obj],
+            native_enum=False,
+        ),
+        default=ContentKind.WORD,
+        nullable=False,
+    )
     source_title = Column(String, nullable=True)
     source_author = Column(String, nullable=True)
     source_reference = Column(Text, nullable=True)

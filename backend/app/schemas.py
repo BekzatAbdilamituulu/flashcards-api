@@ -12,6 +12,17 @@ class LoginIn(BaseModel):
     password: str
 
 
+class GoogleAuthIn(BaseModel):
+    id_token: str = Field(min_length=1)
+
+
+class ContentKind(str, Enum):
+    WORD = "word"
+    PHRASE = "phrase"
+    QUOTE = "quote"
+    IDEA = "idea"
+
+
 # ----------------- CARD SECTION -----------------
 
 
@@ -19,7 +30,7 @@ class CardBase(BaseModel):
     front: str
     back: str
     example_sentence: Optional[str] = None
-    content_kind: Optional[str] = None
+    content_kind: Optional[ContentKind] = None
     reading_source_id: Optional[int] = None
     source_title: Optional[str] = None
     source_author: Optional[str] = None
@@ -38,7 +49,7 @@ class CardUpdate(BaseModel):
     front: Optional[str] = None
     back: Optional[str] = None
     example_sentence: Optional[str] = None
-    content_kind: Optional[str] = None
+    content_kind: Optional[ContentKind] = None
     reading_source_id: Optional[int] = None
     source_title: Optional[str] = None
     source_author: Optional[str] = None
@@ -309,6 +320,8 @@ class RefreshIn(BaseModel):
 class UserOut(BaseModel):
     id: int
     username: str
+    email: Optional[str] = None
+    email_verified: bool
     daily_card_target: int
     daily_new_target: int
     model_config = ConfigDict(from_attributes=True)

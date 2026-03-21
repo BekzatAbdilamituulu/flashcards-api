@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import secrets
 from datetime import date, datetime, timedelta
 from typing import List, Optional
 
@@ -30,12 +31,56 @@ def get_user_by_username(db: Session, username: str) -> Optional[models.User]:
     return db.query(models.User).filter(models.User.username == username).first()
 
 
-def create_user(db: Session, username: str, hashed_password: str) -> models.User:
-    user = models.User(username=username, hashed_password=hashed_password)
+def get_user_by_email(db: Session, email: str) -> Optional[models.User]:
+    return db.query(models.User).filter(models.User.email == email).first()
+
+
+def get_user_by_google_sub(db: Session, google_sub: str) -> Optional[models.User]:
+    return db.query(models.User).filter(models.User.google_sub == google_sub).first()
+
+
+def create_user(
+    db: Session,
+    username: str,
+    hashed_password: str,
+    *,
+    email: str | None = None,
+    google_sub: str | None = None,
+    email_verified: bool = False,
+) -> models.User:
+    user = models.User(
+        username=username,
+        hashed_password=hashed_password,
+        email=email,
+        google_sub=google_sub,
+        email_verified=email_verified,
+    )
     db.add(user)
     db.flush()
     db.refresh(user)
     return user
+
+
+def _normalize_username_candidate(value: str) -> str:
+    value = value.strip().lower()
+    value = re.sub(r"[^a-z0-9_]+", "_", value)
+    value = re.sub(r"_+", "_", value).strip("_")
+    return value or "user"
+
+
+def generate_unique_username(db: Session, email: str) -> str:
+    local_part = email.split("@", 1)[0]
+    base = _normalize_username_candidate(local_part)
+
+    for suffix in range(0, 1000):
+        candidate = base if suffix == 0 else f"{base}_{suffix}"
+        if not get_user_by_username(db, candidate):
+            return candidate
+
+    while True:
+        candidate = f"{base}_{secrets.token_hex(3)}"
+        if not get_user_by_username(db, candidate):
+            return candidate
 
 def get_user_learning_pair(
     db: Session,
@@ -82,6 +127,20 @@ def get_user_learning_pair_by_langs(
         )
         .first()
     )
+
+
+def normalize_content_kind(
+    content_kind: str | models.ContentKind | schemas.ContentKind | None,
+) -> models.ContentKind:
+    if content_kind is None:
+        return models.ContentKind.WORD
+    if isinstance(content_kind, models.ContentKind):
+        return content_kind
+    if isinstance(content_kind, schemas.ContentKind):
+        return models.ContentKind(content_kind.value)
+
+    value = str(content_kind).strip().lower() or models.ContentKind.WORD.value
+    return models.ContentKind(value)
 
 # ---------default users language pair
 
@@ -734,7 +793,7 @@ def create_card(
     front: str,
     back: str,
     example_sentence: Optional[str] = None,
-    content_kind: Optional[str] = None,
+    content_kind: str | models.ContentKind | schemas.ContentKind | None = None,
     reading_source_id: Optional[int] = None,
     source_title: Optional[str] = None,
     source_author: Optional[str] = None,
@@ -821,7 +880,7 @@ def create_card(
     source_reference_clean = auto_content.clean_text(source_reference)
     source_sentence_clean = auto_content.clean_text(source_sentence)
     context_note_clean = auto_content.clean_text(context_note)
-    content_kind_clean = (content_kind or "word").strip() or "word"
+    content_kind_clean = normalize_content_kind(content_kind)
     source_page_clean = (source_page or "").strip() or None
     source_title_final = source_title_clean or (reading_source.title if reading_source else None)
     source_author_final = source_author_clean or (reading_source.author if reading_source else None)
@@ -871,7 +930,7 @@ def update_card(
     front: Optional[str] = None,
     back: Optional[str] = None,
     example_sentence: Optional[str] = None,
-    content_kind: Optional[str] = None,
+    content_kind: str | models.ContentKind | schemas.ContentKind | None = None,
     reading_source_id: Optional[int] = None,
     source_title: Optional[str] = None,
     source_author: Optional[str] = None,
@@ -958,7 +1017,7 @@ def update_card(
         val = (example_sentence or "").strip()
         card.example_sentence = val or None
     if content_kind is not None:
-        card.content_kind = (content_kind or "word").strip() or "word"
+        card.content_kind = normalize_content_kind(content_kind)
     if reading_source_id is not None:
         card.reading_source_id = reading_source.id if reading_source else None
         if not source_title:

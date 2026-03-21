@@ -6,7 +6,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-os.environ.setdefault("DATABASE_URL", "sqlite:///./data/test_flashcards.db")
+os.environ.setdefault("APP_ENV", "test")
+os.environ.setdefault("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/deeplex_test")
 os.environ.setdefault("SECRET_KEY", "test-secret")
 os.environ.setdefault("ALGORITHM", "HS256")
 os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
@@ -90,14 +91,11 @@ def _admin_env(monkeypatch):
 
 
 @pytest.fixture()
-def db_session(tmp_path):
-    # Fresh SQLite file DB per test
-    db_file = tmp_path / "test.sqlite"
-    url = f"sqlite:///{db_file}"
-
-    engine = create_engine(url, connect_args={"check_same_thread": False})
+def db_session():
+    engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 
     db = TestingSessionLocal()
@@ -106,6 +104,7 @@ def db_session(tmp_path):
     finally:
         db.close()
         Base.metadata.drop_all(bind=engine)
+        engine.dispose()
 
 
 @pytest.fixture()

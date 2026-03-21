@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -18,6 +19,7 @@ from ..services.security import (
     hash_token,
     verify_password,
 )
+from ..services.google_auth import verify_google_id_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -106,6 +108,47 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
     return tokens
 
 
+@router.post("/google", response_model=schemas.TokenOut)
+@limiter.limit("1000/minute")
+def google_sign_in(
+    request: Request,
+    payload: schemas.GoogleAuthIn,
+    db: Session = Depends(get_db),
+):
+    identity = verify_google_id_token(payload.id_token)
+
+    user = crud.get_user_by_google_sub(db, identity.sub)
+    if not user:
+        user_by_email = crud.get_user_by_email(db, identity.email)
+        if user_by_email and user_by_email.google_sub != identity.sub:
+            raise HTTPException(
+                status_code=409,
+                detail="An account with this email already exists. Please sign in with your existing method for now.",
+            )
+
+        if user_by_email:
+            user = user_by_email
+            user.google_sub = identity.sub
+            user.email_verified = True
+        else:
+            user = crud.create_user(
+                db,
+                crud.generate_unique_username(db, identity.email),
+                hash_password(secrets.token_urlsafe(32)),
+                email=identity.email,
+                google_sub=identity.sub,
+                email_verified=True,
+            )
+    else:
+        if user.email != identity.email:
+            user.email = identity.email
+        user.email_verified = True
+
+    tokens = _issue_tokens_for_user(db, user=user)
+    _commit_or_rollback(db)
+    return tokens
+
+
 @router.post("/refresh", response_model=schemas.TokenOut)
 @limiter.limit("1000/minute")
 def refresh_tokens(request: Request, payload: schemas.RefreshIn, db: Session = Depends(get_db)):
@@ -134,8 +177,7 @@ def refresh_tokens(request: Request, payload: schemas.RefreshIn, db: Session = D
 
     expires_at = db_token.expires_at
 
-    # SQLite may return naive datetime even if timezone=True.
-    # Use a "now" with the same awareness as expires_at.
+    # Match the driver's timezone awareness when comparing timestamps.
     if expires_at.tzinfo is None:
         now = datetime.utcnow()
     else:

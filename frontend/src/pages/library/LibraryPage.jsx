@@ -50,13 +50,13 @@ export default function LibraryPage() {
     <div className="space-y-4">
       <div className="rounded-2xl border border-stone-200 bg-gradient-to-b from-amber-50 to-stone-100 p-4 shadow-sm">
         <h1 className="text-2xl font-bold text-stone-900">Library sources</h1>
-        <p className="mt-1 text-sm text-stone-600">Browse curated sources and import words into your own books.</p>
+        <p className="mt-1 text-sm text-stone-600">Browse curated reading collections and import words into your own sources.</p>
 
         <div className="mt-3">
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search reading packs by title"
+            placeholder="Search reading collections by title"
             className="border-stone-300 bg-white/95"
           />
         </div>
@@ -71,7 +71,7 @@ export default function LibraryPage() {
       {!loading && filteredDecks.length === 0 ? (
         <Card className="border-stone-200 bg-white/90">
           <p className="text-sm text-stone-600">
-            {search.trim() ? "No reading packs found for your search." : "No reading packs available right now."}
+            {search.trim() ? "No reading collections found for your search." : "No reading collections available right now."}
           </p>
         </Card>
       ) : null}

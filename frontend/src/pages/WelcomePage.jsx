@@ -1,6 +1,36 @@
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+
+import { AuthApi } from "../api/endpoints";
+import { tokens } from "../api/tokens";
+import GoogleSignInButton from "../components/GoogleSignInButton";
+import { completeSignIn } from "../utils/completeSignIn";
+
+function extractError(e) {
+  if (e?.response?.data) return JSON.stringify(e.response.data);
+  return e?.message ?? "Request failed";
+}
 
 export default function WelcomePage() {
+  const nav = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function onGoogleCredential(idToken) {
+    setBusy(true);
+    setError("");
+
+    try {
+      const res = await AuthApi.google(idToken);
+      await completeSignIn(res.data, nav);
+    } catch (e) {
+      tokens.clear();
+      setError(extractError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="mx-auto min-h-screen w-full max-w-3xl px-6 py-10 text-stone-900">
       <section className="space-y-4 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
@@ -25,6 +55,18 @@ export default function WelcomePage() {
             Save words from your reading
           </Link>
         </div>
+
+        <div className="pt-2">
+          <GoogleSignInButton
+            disabled={busy}
+            onCredential={onGoogleCredential}
+            onError={setError}
+          />
+        </div>
+
+        {error ? (
+          <pre className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">{error}</pre>
+        ) : null}
       </section>
 
       <section className="mt-6 grid gap-4 sm:grid-cols-2">
