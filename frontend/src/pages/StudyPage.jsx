@@ -50,7 +50,7 @@ function renderSentenceWithEmphasis(sentence, word, className) {
           return <span key={`${part}-${index}`}>{part}</span>;
         }
         return (
-          <mark key={`${part}-${index}`} className="rounded bg-amber-100 px-1 text-inherit">
+          <mark key={`${part}-${index}`} className="rounded bg-indigo-100 px-1 text-inherit">
             {part}
           </mark>
         );
@@ -190,21 +190,21 @@ export default function StudyPage() {
   }, [id, sourceId, activePair?.id]);
 
   return (
-    <div className="mx-auto w-full max-w-md space-y-4 pb-8">
-      <div className="rounded-2xl border border-stone-200 bg-gradient-to-br from-stone-50 via-white to-amber-50 p-4">
+    <div className="mx-auto w-full max-w-md space-y-4 pb-8 pt-2">
+      <div className="rounded-3xl border border-white/50 bg-gradient-to-br from-indigo-500/20 via-blue-600/15 to-purple-600/20 p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
-          <div className="rounded-xl bg-white/80 px-3 py-2 text-left shadow-sm">
-            <p className="text-[11px] uppercase tracking-[0.24em] text-stone-500">Reading memory</p>
-            <p className="text-sm font-semibold text-stone-900">{sourceContextLabel}</p>
+          <div className="rounded-2xl bg-white/80 px-3 py-2 text-left shadow-sm">
+            <p className="text-[11px] uppercase tracking-[0.24em] text-indigo-700/60">Reading memory</p>
+            <p className="text-sm font-semibold text-gray-900">{sourceContextLabel}</p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-stone-500">Reviewing from</p>
-            <p className="text-sm font-semibold text-stone-900">{reviewSourceTitle}</p>
+            <p className="text-xs text-indigo-700/60">Reviewing from</p>
+            <p className="text-sm font-semibold text-gray-900">{reviewSourceTitle}</p>
             {reviewSourceAuthor ? (
-              <p className="text-xs text-stone-500">{reviewSourceAuthor}</p>
+              <p className="text-xs text-indigo-700/60">{reviewSourceAuthor}</p>
             ) : null}
           </div>
-          <div className="rounded-xl bg-white px-3 py-2 text-sm font-medium text-stone-700 shadow-sm">
+          <div className="rounded-2xl bg-white px-3 py-2 text-sm font-medium text-gray-800 shadow-sm">
             {idx + 1} / {batch?.cards?.length ?? 0}
           </div>
         </div>
@@ -219,13 +219,13 @@ export default function StudyPage() {
       {!loading && current ? (
         <div className="space-y-5">
           <div className="relative mx-3 mt-2">
-            <div className="pointer-events-none absolute inset-x-3 top-3 h-full rounded-2xl border border-gray-200 bg-gray-50" />
-            <div className="pointer-events-none absolute inset-x-1 top-1 h-full rounded-2xl border border-gray-200 bg-gray-100" />
-            <Card className="relative rounded-2xl px-6 py-8 text-center shadow-sm">
-              <div className="mb-6 flex flex-wrap items-center justify-center gap-2 text-[11px] uppercase tracking-[0.22em] text-stone-500">
-                <span className="rounded-full bg-stone-100 px-3 py-1">Reading review</span>
+            <div className="pointer-events-none absolute inset-x-3 top-3 h-full rounded-3xl border border-indigo-100/60 bg-indigo-50/50" />
+            <div className="pointer-events-none absolute inset-x-1 top-1 h-full rounded-3xl border border-indigo-100/60 bg-indigo-100/30" />
+            <Card className="relative rounded-2xl px-6 py-8 text-center">
+              <div className="mb-6 flex flex-wrap items-center justify-center gap-2 text-[11px] uppercase tracking-[0.22em] text-indigo-700/60">
+                <span className="rounded-full bg-indigo-50 px-3 py-1 text-indigo-700">Reading review</span>
                 {current.source_page ? (
-                  <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-900">
+                  <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-900">
                     Page {current.source_page}
                   </span>
                 ) : null}
@@ -234,12 +234,12 @@ export default function StudyPage() {
                 {!revealed ? (
                   <div className="space-y-4">
                     {isClozeMode ? (
-                      <p className="text-2xl font-semibold leading-relaxed text-black">
+                      <p className="text-2xl font-semibold leading-relaxed text-gray-900">
                         {clozeSentence.split("______").map((part, index, arr) => (
                           <span key={`${index}-${part}`}>
                             {part}
                             {index < arr.length - 1 ? (
-                              <span className="mx-1 rounded bg-gray-200 px-2 py-0.5 font-bold tracking-wide">
+                              <span className="mx-1 rounded bg-indigo-200 px-2 py-0.5 font-bold tracking-wide">
                                 ______
                               </span>
                             ) : null}
@@ -248,36 +248,36 @@ export default function StudyPage() {
                       </p>
                     ) : (
                       <>
-                        <p className="text-xs uppercase tracking-[0.24em] text-stone-500">Word to remember</p>
-                        <p className="text-4xl font-bold leading-tight text-black">{current.front}</p>
+                        <p className="text-xs uppercase tracking-[0.24em] text-indigo-700/60">Word to remember</p>
+                        <p className="text-4xl font-bold leading-tight text-gray-900">{current.front}</p>
                       </>
                     )}
                     {reviewSentence ? (
-                      <div className="space-y-2 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-4 text-left">
-                        <p className="text-xs uppercase tracking-[0.24em] text-stone-500">
+                      <div className="space-y-2 rounded-3xl border border-indigo-100/60 bg-indigo-50/30 px-4 py-4 text-left">
+                        <p className="text-xs uppercase tracking-[0.24em] text-indigo-700/60">
                           {isClozeMode ? "Fill the blank from the sentence" : "Seen in the book"}
                         </p>
-                        {renderSentenceWithEmphasis(reviewSentence, current.front, "text-base leading-relaxed text-stone-800")}
+                        {renderSentenceWithEmphasis(reviewSentence, current.front, "text-base leading-relaxed text-gray-800")}
                       </div>
                     ) : null}
                   </div>
                 ) : (
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <p className="text-xs uppercase tracking-[0.24em] text-stone-500">Word</p>
-                      <p className="text-3xl font-bold leading-tight text-black">{current.front}</p>
+                      <p className="text-xs uppercase tracking-[0.24em] text-indigo-700/60">Word</p>
+                      <p className="text-3xl font-bold leading-tight text-gray-900">{current.front}</p>
                     </div>
                     <div className="space-y-2">
-                      <p className="text-xs uppercase tracking-[0.24em] text-stone-500">Meaning</p>
+                      <p className="text-xs uppercase tracking-[0.24em] text-indigo-700/60">Meaning</p>
                       <p className="text-2xl font-semibold leading-tight text-gray-900">{current.back}</p>
                     </div>
                     {reviewSentence ? (
-                      <div className="space-y-2 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-4 text-left">
-                        <p className="text-xs uppercase tracking-[0.24em] text-stone-500">Sentence from the book</p>
-                        {renderSentenceWithEmphasis(reviewSentence, current.front, "text-lg leading-relaxed text-stone-900")}
+                      <div className="space-y-2 rounded-3xl border border-indigo-100/60 bg-indigo-50/30 px-4 py-4 text-left">
+                        <p className="text-xs uppercase tracking-[0.24em] text-indigo-700/60">Sentence from the book</p>
+                        {renderSentenceWithEmphasis(reviewSentence, current.front, "text-lg leading-relaxed text-gray-900")}
                       </div>
                     ) : null}
-                    <div className="grid gap-2 text-left text-sm text-stone-600">
+                    <div className="grid gap-2 text-left text-sm text-gray-600">
                       <p>Memory strength: {memoryStrength}</p>
                       {reviewSourceTitle ? (
                         <p>

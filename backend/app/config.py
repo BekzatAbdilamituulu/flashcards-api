@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     render_external_url: str | None = None
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", ".env.local"),
         case_sensitive=False,
         extra="ignore",
     )

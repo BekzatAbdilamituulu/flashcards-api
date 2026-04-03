@@ -1,37 +1,18 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { AuthApi } from "../api/endpoints";
-import { tokens } from "../api/tokens";
+import { NavLink, Outlet } from "react-router-dom";
 import PairSwitcher from "./PairSwitcher";
+import BottomNavigation from "./BottomNavigation";
 
 function sideLinkClass({ isActive }) {
-  const base = "rounded-xl px-3 py-2 text-sm font-medium transition-colors";
+  const base =
+    "rounded-xl px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-0";
   return isActive
     ? `${base} bg-black text-white`
     : `${base} text-gray-700 hover:bg-gray-100`;
 }
 
-function bottomLinkClass({ isActive }) {
-  const base = "flex-1 rounded-xl px-2 py-2 text-center text-xs font-medium";
-  return isActive ? `${base} bg-black text-white` : `${base} text-gray-700`;
-}
-
 export default function AppLayout() {
-  const nav = useNavigate();
-
-  async function onLogout() {
-    const refresh = tokens.getRefresh();
-    try {
-      if (refresh) await AuthApi.logout(refresh);
-    } catch {
-      // best-effort server logout
-    } finally {
-      tokens.clear();
-      nav("/login", { replace: true });
-    }
-  }
-
   return (
-    <div className="min-h-screen bg-stone-50 text-black">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-500/15 via-blue-600/10 to-purple-600/15 text-black">
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col md:max-w-7xl md:flex-row">
         <aside className="hidden w-60 border-r border-stone-200 bg-white p-6 md:flex md:flex-col">
           <div className="text-2xl font-bold">Cortex Reader</div>
@@ -57,12 +38,6 @@ export default function AppLayout() {
             </NavLink>
           </nav>
 
-          <button
-            onClick={onLogout}
-            className="mt-auto min-h-11 w-full rounded-xl border border-gray-300 px-4 text-sm font-medium text-gray-700 hover:bg-gray-100"
-          >
-            Logout
-          </button>
         </aside>
 
         <main className="flex-1 p-4 pb-24 md:p-6 md:pb-6">
@@ -73,28 +48,15 @@ export default function AppLayout() {
         </main>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 border-t border-stone-200 bg-white/95 p-3 backdrop-blur md:hidden">
-        <div className="mx-auto flex w-full max-w-md gap-2">
-          <NavLink to="/app" end className={bottomLinkClass}>
-            Dashboard
-          </NavLink>
-          <NavLink to="/app/decks" className={bottomLinkClass}>
-            Sources
-          </NavLink>
-          <NavLink to="/app/library" className={bottomLinkClass}>
-            Library
-          </NavLink>
-          <NavLink to="/app/profile" className={bottomLinkClass}>
-            Profile
-          </NavLink>
-          <button
-            onClick={onLogout}
-            className="flex-1 rounded-xl px-2 py-2 text-center text-xs font-medium text-gray-700"
-          >
-            Logout
-          </button>
-        </div>
-      </nav>
+      <BottomNavigation
+        items={[
+          { to: "/app", end: true, label: "Dashboard", ariaLabel: "Dashboard" },
+          { to: "/app/decks", label: "Sources", ariaLabel: "Sources" },
+          { to: "/app/progress", label: "Progress", ariaLabel: "Progress" },
+          { to: "/app/library", label: "Library", ariaLabel: "Library" },
+          { to: "/app/profile", label: "Profile", ariaLabel: "Profile" },
+        ]}
+      />
     </div>
   );
 }

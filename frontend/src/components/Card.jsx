@@ -1,7 +1,7 @@
 export default function Card({ children, className = "" }) {
   return (
     <div
-      className={`rounded-xl border border-stone-200 bg-white p-6 shadow-sm ${className}`.trim()}
+      className={`rounded-2xl border border-gray-100 bg-white p-6 shadow-lg ${className}`.trim()}
     >
       {children}
     </div>
